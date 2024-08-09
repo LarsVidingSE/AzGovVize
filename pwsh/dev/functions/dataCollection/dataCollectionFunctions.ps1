@@ -27,8 +27,8 @@ function dataCollectionDefenderPlans {
     )
 
     $currentTask = "Getting Microsoft Defender for Cloud plans for Subscription: '$($scopeDisplayName)' ('$scopeId') [quotaId:'$SubscriptionQuotaId']"
-    #https://docs.microsoft.com/en-us/rest/api/securitycenter/pricings
-    $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/subscriptions/$($scopeId)/providers/Microsoft.Security/pricings?api-version=2018-06-01"
+    #https://learn.microsoft.com/rest/api/defenderforcloud/pricings
+    $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/subscriptions/$($scopeId)/providers/Microsoft.Security/pricings?api-version=2024-01-01"
     $method = 'GET'
     $defenderPlansResult = AzAPICall -AzAPICallConfiguration $azAPICallConf -uri $uri -method $method -currentTask $currentTask -caller 'CustomDataCollection'
 
@@ -112,7 +112,7 @@ function dataCollectionDefenderEmailContacts {
     )
 
     $currentTask = "Getting Microsoft Defender for Cloud Email contacts for Subscription: '$($scopeDisplayName)' ('$scopeId') [quotaId:'$SubscriptionQuotaId']"
-    #https://docs.microsoft.com/en-us/rest/api/securitycenter/pricings
+    #https://learn.microsoft.com/rest/api/defenderforcloud/security-contacts
     $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/subscriptions/$($scopeId)/providers/Microsoft.Security/securityContacts?api-version=2020-01-01-preview"
     $method = 'GET'
     $defenderSecurityContactsResult = AzAPICall -AzAPICallConfiguration $azAPICallConf -uri $uri -method $method -listenOn 'Content' -currentTask $currentTask -caller 'CustomDataCollection'
@@ -209,7 +209,6 @@ function dataCollectionVNets {
     )
 
     $currentTask = "Getting Virtual Networks for Subscription: '$($scopeDisplayName)' ('$scopeId') [quotaId:'$SubscriptionQuotaId']"
-    #https://docs.microsoft.com/en-us/rest/api/securitycenter/pricings
     $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/subscriptions/$($scopeId)/providers/Microsoft.Network/virtualNetworks?api-version=2022-05-01"
     $method = 'GET'
     $networkResult = AzAPICall -AzAPICallConfiguration $azAPICallConf -uri $uri -method $method -currentTask $currentTask -caller 'CustomDataCollection'
@@ -236,7 +235,6 @@ function dataCollectionPrivateEndpoints {
     )
 
     $currentTask = "Getting Private Endpoints for Subscription: '$($scopeDisplayName)' ('$scopeId') [quotaId:'$SubscriptionQuotaId']"
-    #https://docs.microsoft.com/en-us/rest/api/securitycenter/pricings
     $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/subscriptions/$($scopeId)/providers/Microsoft.Network/privateEndpoints?api-version=2022-05-01"
     $method = 'GET'
     $privateEndpointsResult = AzAPICall -AzAPICallConfiguration $azAPICallConf -uri $uri -method $method -currentTask $currentTask -caller 'CustomDataCollection' -unhandledErrorAction Continue
@@ -509,18 +507,22 @@ function dataCollectionResources {
 
     #region resources LIST
     $currentTask = "Getting Resources for Subscription: '$($scopeDisplayName)' ('$scopeId') [quotaId:'$subscriptionQuotaId']"
-    $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/subscriptions/$($scopeId)/resources?`$expand=createdTime,changedTime,properties&api-version=2021-04-01"
+    $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/subscriptions/$($scopeId)/resources?`$expand=createdTime,changedTime,properties&api-version=2023-07-01"
     $method = 'GET'
     $resourcesSubscriptionResult = AzAPICall -AzAPICallConfiguration $azAPICallConf -uri $uri -method $method -currentTask $currentTask -caller 'CustomDataCollection'
-    #Write-Host 'arm resList count:'$resourcesSubscriptionResult.Count
     #endregion resources LIST
 
     #region resources GET
     if ($resourcesSubscriptionResult.Count -gt 0) {
         $arrayResourcesWithProperties = [System.Collections.ArrayList]::Synchronized((New-Object System.Collections.ArrayList))
-        $resourcesSubscriptionResult | ForEach-Object -Parallel {
-            $resource = $_
 
+        $batchSize = [math]::ceiling($resourcesSubscriptionResult.Count / $azAPICallConf['htParameters'].ThrottleLimit)
+        #Write-Host "Optimal batch size: $($batchSize)"
+        $counterBatch = [PSCustomObject] @{ Value = 0 }
+        $resourcesSubscriptionResultBatch = ($resourcesSubscriptionResult) | Group-Object -Property { [math]::Floor($counterBatch.Value++ / $batchSize) }
+        #Write-Host "Processing data in $($resourcesSubscriptionResultBatch.Count) batches"
+
+        $resourcesSubscriptionResultBatch | ForEach-Object -Parallel {
             #region using
             $arrayResourcesWithProperties = $using:arrayResourcesWithProperties
             $htResourceProvidersRef = $using:htResourceProvidersRef
@@ -534,64 +536,61 @@ function dataCollectionResources {
             #$htResourcesWithProperties = $using:htResourcesWithProperties
             #endregion using
 
-            if ($htAvailablePrivateEndpointTypes.(($resource.type).ToLower())) {
-                #Write-Host "$($resource.type) in `$htAvailablePrivateEndpointTypes"
-                if ($htResourceProvidersRef.($resource.type)) {
-                    if ($htResourceProvidersRef.($resource.type).APIDefault) {
-                        $apiVersionToUse = $htResourceProvidersRef.($resource.type).APIDefault
-                        $apiRef = 'default'
-                    }
-                    else {
-                        $apiVersionToUse = $htResourceProvidersRef.($resource.type).APILatest
-                        $apiRef = 'latest'
-                    }
+            foreach ($resource in $_.Group) {
 
-                    $currentTask = "Getting Resource Properties API-version: '$apiVersionToUse' ($apiRef); ResourceType: '$($resource.type)'; ResourceId: '$($resource.id)'"
-                    $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)$($resource.id)?api-version=$apiVersionToUse"
-                    $method = 'GET'
-                    $resourceResult = AzAPICall -AzAPICallConfiguration $azAPICallConf -uri $uri -method $method -currentTask $currentTask -caller 'CustomDataCollection' -listenOn Content -unhandledErrorAction Continue
+                if ($htAvailablePrivateEndpointTypes.(($resource.type).ToLower())) {
+                    if ($htResourceProvidersRef.($resource.type)) {
+                        if ($htResourceProvidersRef.($resource.type).APIDefault) {
+                            $apiVersionToUse = $htResourceProvidersRef.($resource.type).APIDefault
+                            $apiRef = 'default'
+                        }
+                        else {
+                            $apiVersionToUse = $htResourceProvidersRef.($resource.type).APILatest
+                            $apiRef = 'latest'
+                        }
 
-                    if ($resourceResult -ne 'ResourceOrResourcegroupNotFound' -and $resourceResult -ne 'convertfromJSONError') {
-                        $null = $script:arrayResourcesWithProperties.Add($resourceResult)
-                        #$script:htResourcesWithProperties.($resourceResult.id) = $resourceResult
-                        if ($resourceResult.properties.privateEndpointConnections.Count -gt 0) {
-                            foreach ($privateEndpointConnection in $resourceResult.properties.privateEndpointConnections) {
-                                $resourceResultIdSplit = $resourceResult.id -split '/'
-                                $null = $script:arrayPrivateEndPointsFromResourceProperties.Add([PSCustomObject]@{
-                                        ResourceName              = $resourceResult.name
-                                        ResourceType              = $resourceResult.type
-                                        ResourceId                = $resourceResult.id
-                                        ResourceResourceGroup     = $resourceResultIdSplit[4]
-                                        ResourceSubscriptionId    = $scopeId
-                                        ResourceSubscriptionName  = $scopeDisplayName
-                                        ResourceMGPath            = $ChildMgParentNameChainDelimited
-                                        privateEndpointConnection = $privateEndpointConnection
-                                    })
+                        $currentTask = "Getting Resource Properties API-version: '$apiVersionToUse' ($apiRef); ResourceType: '$($resource.type)'; ResourceId: '$($resource.id)'"
+                        $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)$($resource.id)?api-version=$apiVersionToUse"
+                        $method = 'GET'
+                        $resourceResult = AzAPICall -AzAPICallConfiguration $azAPICallConf -uri $uri -method $method -currentTask $currentTask -caller 'CustomDataCollection' -listenOn Content -unhandledErrorAction Continue
+
+                        if ($resourceResult -ne 'ResourceOrResourcegroupNotFound' -and $resourceResult -ne 'convertfromJSONError') {
+                            $null = $script:arrayResourcesWithProperties.Add($resourceResult)
+                            #$script:htResourcesWithProperties.($resourceResult.id) = $resourceResult
+                            if ($resourceResult.properties.privateEndpointConnections.Count -gt 0) {
+                                foreach ($privateEndpointConnection in $resourceResult.properties.privateEndpointConnections) {
+                                    $resourceResultIdSplit = $resourceResult.id -split '/'
+                                    $null = $script:arrayPrivateEndPointsFromResourceProperties.Add([PSCustomObject]@{
+                                            ResourceName              = $resourceResult.name
+                                            ResourceType              = $resourceResult.type
+                                            ResourceId                = $resourceResult.id
+                                            ResourceResourceGroup     = $resourceResultIdSplit[4]
+                                            ResourceSubscriptionId    = $scopeId
+                                            ResourceSubscriptionName  = $scopeDisplayName
+                                            ResourceMGPath            = $ChildMgParentNameChainDelimited
+                                            privateEndpointConnection = $privateEndpointConnection
+                                        })
+                                }
+                            }
+                        }
+                        else {
+                            if ($resourceResult -eq 'convertfromJSONError') {
+                                $script:htResourcePropertiesConvertfromJSONFailed.($resource.id) = @{}
                             }
                         }
                     }
                     else {
-                        if ($resourceResult -eq 'convertfromJSONError') {
-                            $script:htResourcePropertiesConvertfromJSONFailed.($resource.id) = @{}
-                        }
+                        Write-Host "[Azure Governance Visualizer] Please file an issue at the Azure Governance Visualizer GitHub repository (aka.ms/AzGovViz) and provide this information (scrub subscription Id and company identifyable names): No API-version matches! ResourceType: '$($resource.type)'; ResourceId: '$($resource.id)' - Thank you!" -ForegroundColor DarkRed
                     }
                 }
                 else {
-                    Write-Host "[Azure Governance Visualizer] Please file an issue at the Azure Governance Visualizer GitHub repository (aka.ms/AzGovViz) and provide this information (scrub subscription Id and company identifyable names): No API-version matches! ResourceType: '$($resource.type)'; ResourceId: '$($resource.id)' - Thank you!" -ForegroundColor DarkRed
+                    #Write-Host "$($resource.type) not in `$htAvailablePrivateEndpointTypes"
                 }
-            }
-            else {
-                #Write-Host "$($resource.type) not in `$htAvailablePrivateEndpointTypes"
             }
 
         } -ThrottleLimit $azAPICallConf['htParameters'].ThrottleLimit
     }
-    #Write-Host 'arm resGet count:' $arrayResourcesWithProperties.Count
     #endregion resources GET
-
-    # if ($resourcesSubscriptionResult.Count -ne $arrayResourcesWithProperties.Count) {
-    #     Write-Host " FYI: Getting Resources for Subscription: '$($scopeDisplayName)' ('$scopeId') [quotaId:'$subscriptionQuotaId']  - ARM list count: $($resourcesSubscriptionResult.Count); ARG get count: $($arrayResourcesWithProperties.Count)"
-    # }
 
     #region PSRule
     if ($azAPICallConf['htParameters'].DoPSRule -eq $true) {
@@ -657,8 +656,9 @@ function dataCollectionResources {
 
     foreach ($resourceType in ($resourcesSubscriptionResult | Group-Object -Property type)) {
         if (-not $htResourceTypesUniqueResource.(($resourceType.name).ToLower())) {
-            $script:htResourceTypesUniqueResource.(($resourceType.name).ToLower()) = @{}
-            $script:htResourceTypesUniqueResource.(($resourceType.name).ToLower()).resourceId = $resourceType.Group.Id | Select-Object -First 1
+            $script:htResourceTypesUniqueResource.(($resourceType.name).ToLower()) = @{
+                resourceId = $resourceType.Group.Id | Select-Object -First 1
+            }
         }
     }
 
@@ -1255,7 +1255,6 @@ function dataCollectionResources {
                 foreach ($naming in $namingConvention) {
                     if (($resource.name).StartsWith($naming, 'CurrentCultureIgnoreCase')) {
                         $cafResourceNamingCheck = 'passed'
-                        #$applicableNaming = $naming
                     }
                 }
             }
@@ -1321,8 +1320,9 @@ function dataCollectionResources {
 
 
     #resourceTags
-    $script:htSubscriptionTagList.($scopeId) = @{}
-    $script:htSubscriptionTagList.($scopeId).Resource = @{}
+    $script:htSubscriptionTagList.($scopeId) = @{
+        Resource = @{}
+    }
     foreach ($tags in ($resourcesSubscriptionResult.where( { $_.Tags -and -not [String]::IsNullOrWhiteSpace($_.Tags) } )).Tags) {
         foreach ($tagName in $tags.PSObject.Properties.Name) {
             #resource
@@ -1360,7 +1360,6 @@ function dataCollectionResourceGroups {
         $subscriptionQuotaId
     )
 
-    #https://management.azure.com/subscriptions/{subscriptionId}/resourcegroups?api-version=2020-06-01
     $currentTask = "Getting ResourceGroups for Subscription: '$($scopeDisplayName)' ('$scopeId') [quotaId:'$subscriptionQuotaId']"
     $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/subscriptions/$($scopeId)/resourcegroups?api-version=2021-04-01"
     $method = 'GET'
@@ -1604,9 +1603,11 @@ function dataCollectionTags {
         $subscriptionTagsCount = 0
         $subscriptionTags = 'none'
     }
-    $htSubscriptionTagsReturn = @{}
-    $htSubscriptionTagsReturn.subscriptionTagsCount = $subscriptionTagsCount
-    $htSubscriptionTagsReturn.subscriptionTags = $subscriptionTags
+    $htSubscriptionTagsReturn = @{
+        subscriptionTagsCount = $subscriptionTagsCount
+        subscriptionTags      = $subscriptionTags
+    }
+
     return $htSubscriptionTagsReturn
 }
 $funcDataCollectionTags = $function:dataCollectionTags.ToString()
@@ -1866,7 +1867,7 @@ function dataCollectionBluePrintAssignmentsSub {
             foreach ($subscriptionBlueprintAssignment in $subscriptionBlueprintAssignmentsResult) {
 
                 if (-not ($htCacheAssignmentsBlueprint).($subscriptionBlueprintAssignment.Id)) {
-                ($script:htCacheAssignmentsBlueprint).($subscriptionBlueprintAssignment.Id) = @{}
+                    #($script:htCacheAssignmentsBlueprint).($subscriptionBlueprintAssignment.Id) = @{}
                 ($script:htCacheAssignmentsBlueprint).($subscriptionBlueprintAssignment.Id) = $subscriptionBlueprintAssignment
                 }
 
@@ -2191,22 +2192,6 @@ function dataCollectionPolicyDefinitions {
 
             if (-not [string]::IsNullOrWhiteSpace($scopePolicyDefinition.properties.policyRule.then.details.roleDefinitionIds)) {
                 $script:htCacheDefinitionsPolicy.($hlpPolicyDefinitionId).RoleDefinitionIds = $scopePolicyDefinition.properties.policyRule.then.details.roleDefinitionIds
-                foreach ($roledefinitionId in $scopePolicyDefinition.properties.policyRule.then.details.roleDefinitionIds) {
-                    if (-not [string]::IsNullOrEmpty($roledefinitionId)) {
-                        if (-not $htRoleDefinitionIdsUsedInPolicy.($roledefinitionId)) {
-                            $script:htRoleDefinitionIdsUsedInPolicy.($roledefinitionId) = @{}
-                            $script:htRoleDefinitionIdsUsedInPolicy.($roledefinitionId).UsedInPolicies = [array]$hlpPolicyDefinitionId
-                        }
-                        else {
-                            $usedInPolicies = $htRoleDefinitionIdsUsedInPolicy.($roledefinitionId).UsedInPolicies
-                            $usedInPolicies += $hlpPolicyDefinitionId
-                            $script:htRoleDefinitionIdsUsedInPolicy.($roledefinitionId).UsedInPolicies = $usedInPolicies
-                        }
-                    }
-                    else {
-                        Write-Host "$currentTask $($hlpPolicyDefinitionId) Finding: empty roleDefinitionId in roledefinitionIds"
-                    }
-                }
             }
             else {
                 $script:htCacheDefinitionsPolicy.($hlpPolicyDefinitionId).RoleDefinitionIds = 'n/a'
@@ -2778,7 +2763,6 @@ function dataCollectionPolicyAssignmentsMG {
                         $policySetCategory = $policySetDefinition.Category
                     }
                     else {
-                        #test
                         #Write-Host "pa '($L0mgmtGroupPolicyAssignment.Id)' scope: '$($scopeId)' - policySetDefinition not available: $policySetDefinitionId"
                         Start-Sleep -Seconds 1
                     }
@@ -3469,11 +3453,11 @@ function dataCollectionRoleDefinitions {
 
     if ($TargetMgOrSub -eq 'Sub') {
         $currentTask = "Getting Custom Role definitions for Subscription: '$($scopeDisplayName)' ('$scopeId') [quotaId:'$subscriptionQuotaId']"
-        $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/subscriptions/$($scopeId)/providers/Microsoft.Authorization/roleDefinitions?api-version=2018-07-01&`$filter=type eq 'CustomRole'"
+        $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/subscriptions/$($scopeId)/providers/Microsoft.Authorization/roleDefinitions?api-version=2023-07-01-preview&`$filter=type eq 'CustomRole'"
     }
     if ($TargetMgOrSub -eq 'MG') {
         $currentTask = "Getting Custom Role definitions for Management Group: '$($scopeDisplayName)' ('$scopeId')"
-        $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/providers/Microsoft.Management/managementGroups/$($scopeId)/providers/Microsoft.Authorization/roleDefinitions?api-version=2018-07-01&`$filter=type eq 'CustomRole'"
+        $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/providers/Microsoft.Management/managementGroups/$($scopeId)/providers/Microsoft.Authorization/roleDefinitions?api-version=2023-07-01-preview&`$filter=type eq 'CustomRole'"
     }
     $method = 'GET'
     $scopeCustomRoleDefinitions = AzAPICall -AzAPICallConfiguration $azAPICallConf -uri $uri -method $method -currentTask $currentTask -caller 'CustomDataCollection'
@@ -3504,26 +3488,29 @@ function dataCollectionRoleDefinitions {
                 $roleCapable4RoleAssignmentsWrite = $false
             }
 
-            $htTemp = @{}
-            $htTemp.Id = $($scopeCustomRoleDefinition.name)
-            $htTemp.Name = $($scopeCustomRoleDefinition.properties.roleName)
-            $htTemp.IsCustom = $true
-            $htTemp.AssignableScopes = $($scopeCustomRoleDefinition.properties.AssignableScopes)
-            $htTemp.Actions = $($scopeCustomRoleDefinition.properties.permissions.Actions)
-            $htTemp.NotActions = $($scopeCustomRoleDefinition.properties.permissions.NotActions)
-            $htTemp.DataActions = $($scopeCustomRoleDefinition.properties.permissions.DataActions)
-            $htTemp.NotDataActions = $($scopeCustomRoleDefinition.properties.permissions.NotDataActions)
-            $htTemp.Json = $scopeCustomRoleDefinition
-            $htTemp.RoleCanDoRoleAssignments = $roleCapable4RoleAssignmentsWrite
+            $htTemp = @{
+                Id                       = $($scopeCustomRoleDefinition.name)
+                Name                     = $($scopeCustomRoleDefinition.properties.roleName)
+                IsCustom                 = $true
+                AssignableScopes         = $($scopeCustomRoleDefinition.properties.AssignableScopes)
+                Actions                  = $($scopeCustomRoleDefinition.properties.permissions.Actions)
+                NotActions               = $($scopeCustomRoleDefinition.properties.permissions.NotActions)
+                DataActions              = $($scopeCustomRoleDefinition.properties.permissions.DataActions)
+                NotDataActions           = $($scopeCustomRoleDefinition.properties.permissions.NotDataActions)
+                Json                     = $scopeCustomRoleDefinition
+                RoleCanDoRoleAssignments = $roleCapable4RoleAssignmentsWrite
+            }
+
             ($script:htCacheDefinitionsRole).($scopeCustomRoleDefinition.name) = $htTemp
 
             #namingValidation
             if (-not [string]::IsNullOrEmpty($scopeCustomRoleDefinition.properties.roleName)) {
                 $namingValidationResult = NamingValidation -toCheck $scopeCustomRoleDefinition.properties.roleName
                 if ($namingValidationResult.Count -gt 0) {
-                    $script:htNamingValidation.Role.($scopeCustomRoleDefinition.name) = @{}
-                    $script:htNamingValidation.Role.($scopeCustomRoleDefinition.name).roleNameInvalidChars = ($namingValidationResult -join '')
-                    $script:htNamingValidation.Role.($scopeCustomRoleDefinition.name).roleName = $scopeCustomRoleDefinition.properties.roleName
+                    $script:htNamingValidation.Role.($scopeCustomRoleDefinition.name) = @{
+                        roleNameInvalidChars = ($namingValidationResult -join '')
+                        roleName             = $scopeCustomRoleDefinition.properties.roleName
+                    }
                 }
             }
         }
@@ -3559,7 +3546,6 @@ function dataCollectionRoleAssignmentsMG {
             $roleAssignmentScheduleInstances = ($roleAssignmentScheduleInstancesFromAPI.where( { ($_.properties.roleAssignmentScheduleId -replace '.*/') -ne ($_.properties.originRoleAssignmentId -replace '.*/') }))
             $roleAssignmentScheduleInstancesCount = $roleAssignmentScheduleInstances.Count
             if ($roleAssignmentScheduleInstancesCount -gt 0) {
-                #$htRoleAssignmentsPIM = @{}
                 foreach ($roleAssignmentScheduleInstance in $roleAssignmentScheduleInstances) {
                     $script:htRoleAssignmentsPIM.($roleAssignmentScheduleInstance.properties.originRoleAssignmentId.tolower()) = $roleAssignmentScheduleInstance.properties
                 }
@@ -3590,8 +3576,9 @@ function dataCollectionRoleAssignmentsMG {
 
     $L0mgmtGroupRoleAssignmentsLimitUtilization = (($L0mgmtGroupRoleAssignments.properties.where( { $_.scope -eq "/providers/Microsoft.Management/managementGroups/$($scopeId)" } ))).count
     if (-not $htMgAtScopeRoleAssignments.($scopeId)) {
-        $script:htMgAtScopeRoleAssignments.($scopeId) = @{}
-        $script:htMgAtScopeRoleAssignments.($scopeId).AssignmentsCount = $L0mgmtGroupRoleAssignmentsLimitUtilization
+        $script:htMgAtScopeRoleAssignments.($scopeId) = @{
+            AssignmentsCount = $L0mgmtGroupRoleAssignmentsLimitUtilization
+        }
     }
 
     if ($azAPICallConf['htParameters'].LargeTenant -eq $true -or $azAPICallConf['htParameters'].RBACAtScopeOnly -eq $true) {
@@ -3601,8 +3588,9 @@ function dataCollectionRoleAssignmentsMG {
         #tenantLevelRoleAssignments
         if (-not $htMgAtScopeRoleAssignments.'tenantLevelRoleAssignments') {
             $tenantLevelRoleAssignmentsCount = (($L0mgmtGroupRoleAssignments.where( { $_.id -like '/providers/Microsoft.Authorization/roleAssignments/*' } ))).count
-            $script:htMgAtScopeRoleAssignments.'tenantLevelRoleAssignments' = @{}
-            $script:htMgAtScopeRoleAssignments.'tenantLevelRoleAssignments'.AssignmentsCount = $tenantLevelRoleAssignmentsCount
+            $script:htMgAtScopeRoleAssignments.'tenantLevelRoleAssignments' = @{
+                AssignmentsCount = $tenantLevelRoleAssignmentsCount
+            }
         }
     }
     foreach ($L0mgmtGroupRoleAssignment in $L0mgmtGroupRoleAssignments) {
@@ -3628,8 +3616,9 @@ function dataCollectionRoleAssignmentsMG {
         }
 
         if (-not $htRoleAssignmentsFromAPIInheritancePrevention.($roleAssignmentId -replace '.*/')) {
-            $script:htRoleAssignmentsFromAPIInheritancePrevention.($roleAssignmentId -replace '.*/') = @{}
-            $script:htRoleAssignmentsFromAPIInheritancePrevention.($roleAssignmentId -replace '.*/').assignment = $L0mgmtGroupRoleAssignment
+            $script:htRoleAssignmentsFromAPIInheritancePrevention.($roleAssignmentId -replace '.*/') = @{
+                assignment = $L0mgmtGroupRoleAssignment
+            }
         }
 
         $roleDefinitionId = $L0mgmtGroupRoleAssignment.properties.roleDefinitionId
@@ -3841,7 +3830,6 @@ function dataCollectionRoleAssignmentsSub {
             $roleAssignmentScheduleInstances = ($roleAssignmentScheduleInstancesFromAPI.where( { ($_.properties.roleAssignmentScheduleId -replace '.*/') -ne ($_.properties.originRoleAssignmentId -replace '.*/') }))
             $roleAssignmentScheduleInstancesCount = $roleAssignmentScheduleInstances.Count
             if ($roleAssignmentScheduleInstancesCount -gt 0) {
-                #$htRoleAssignmentsPIM = @{}
                 foreach ($roleAssignmentScheduleInstance in $roleAssignmentScheduleInstances) {
                     $script:htRoleAssignmentsPIM.($roleAssignmentScheduleInstance.properties.originRoleAssignmentId.tolower()) = $roleAssignmentScheduleInstance.properties
                 }
@@ -4189,8 +4177,9 @@ function dataCollectionClassicAdministratorsSub {
                     })
             }
         }
-        $script:htClassicAdministrators.($scopeId) = @{}
-        $script:htClassicAdministrators.($scopeId).ClassicAdministrators = $arrayClassicAdministrators
+        $script:htClassicAdministrators.($scopeId) = @{
+            ClassicAdministrators = $arrayClassicAdministrators
+        }
     }
 }
 $funcDataCollectionClassicAdministratorsSub = $function:dataCollectionClassicAdministratorsSub.ToString()

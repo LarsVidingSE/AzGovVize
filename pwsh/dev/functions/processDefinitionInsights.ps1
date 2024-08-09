@@ -14,9 +14,10 @@ function processDefinitionInsights() {
 
     #policy/policySet preQuery
     #region preQuery
-    $htPolicyWithAssignments = @{}
-    $htPolicyWithAssignments.policy = @{}
-    $htPolicyWithAssignments.policySet = @{}
+    $htPolicyWithAssignments = @{
+        policy    = @{}
+        policySet = @{}
+    }
 
     foreach ($policyOrPolicySet in $arrayPolicyAssignmentsEnriched | Sort-Object -Property PolicyAssignmentId -Unique | Group-Object -Property PolicyId, PolicyVariant) {
         $policyOrPolicySetNameSplit = $policyOrPolicySet.name.split(', ')
@@ -30,8 +31,9 @@ function processDefinitionInsights() {
                             PolicyAssignmentDisplayName = $entry.PolicyAssignmentDisplayName
                         })
                 }
-                ($htPolicyWithAssignments).policy.($policyOrPolicySetNameSplit[0]) = @{}
-                ($htPolicyWithAssignments).policy.($policyOrPolicySetNameSplit[0]).Assignments = [array]($pscustomObj)
+                ($htPolicyWithAssignments).policy.($policyOrPolicySetNameSplit[0]) = @{
+                    Assignments = [array]($pscustomObj)
+                }
             }
         }
         else {
@@ -44,8 +46,9 @@ function processDefinitionInsights() {
                             PolicyAssignmentDisplayName = $entry.PolicyAssignmentDisplayName
                         })
                 }
-                ($htPolicyWithAssignments).policySet.($policyOrPolicySetNameSplit[0]) = @{}
-                ($htPolicyWithAssignments).policySet.($policyOrPolicySetNameSplit[0]).Assignments = [array]($pscustomObj)
+                ($htPolicyWithAssignments).policySet.($policyOrPolicySetNameSplit[0]) = @{
+                    Assignments = [array]($pscustomObj)
+                }
             }
         }
     }
@@ -53,13 +56,13 @@ function processDefinitionInsights() {
     foreach ($customPolicy in $tenantCustomPolicies) {
         if ($htPoliciesWithAssignmentOnRgRes.($customPolicy.PolicyDefinitionId)) {
             if (-not ($htPolicyWithAssignments).policy.($customPolicy.PolicyDefinitionId)) {
-                ($htPolicyWithAssignments).policy.($customPolicy.PolicyDefinitionId) = @{}
-                ($htPolicyWithAssignments).policy.($customPolicy.PolicyDefinitionId).Assignments = [array]($htPoliciesWithAssignmentOnRgRes.($customPolicy.PolicyDefinitionId).Assignments)
+                ($htPolicyWithAssignments).policy.($customPolicy.PolicyDefinitionId) = @{
+                    Assignments = [array]($htPoliciesWithAssignmentOnRgRes.($customPolicy.PolicyDefinitionId).Assignments)
+                }
             }
             else {
-                $array = @()
-                $array += ($htPolicyWithAssignments).policy.($customPolicy.PolicyDefinitionId).Assignments
-                $array += $htPoliciesWithAssignmentOnRgRes.($customPolicy.PolicyDefinitionId).Assignments
+                $array = [System.Collections.ArrayList]@()
+                $null = $array.Add($htPoliciesWithAssignmentOnRgRes.($customPolicy.PolicyDefinitionId).Assignments)
                 ($htPolicyWithAssignments).policy.($customPolicy.PolicyDefinitionId).Assignments = $array
             }
         }
@@ -68,13 +71,13 @@ function processDefinitionInsights() {
     foreach ($customPolicySet in $tenantCustomPolicySets) {
         if ($htPoliciesWithAssignmentOnRgRes.($customPolicySet.PolicyDefinitionId)) {
             if (-not ($htPolicyWithAssignments).policySet.($customPolicySet.PolicyDefinitionId)) {
-                ($htPolicyWithAssignments).policySet.($customPolicySet.PolicyDefinitionId) = @{}
-                ($htPolicyWithAssignments).policySet.($customPolicySet.PolicyDefinitionId).Assignments = [array]($htPoliciesWithAssignmentOnRgRes.($customPolicySet.PolicyDefinitionId).Assignments)
+                ($htPolicyWithAssignments).policySet.($customPolicySet.PolicyDefinitionId) = @{
+                    Assignments = [array]($htPoliciesWithAssignmentOnRgRes.($customPolicySet.PolicyDefinitionId).Assignments)
+                }
             }
             else {
-                $array = @()
-                $array += ($htPolicyWithAssignments).policySet.($customPolicySet.PolicyDefinitionId).Assignments
-                $array += $htPoliciesWithAssignmentOnRgRes.($customPolicySet.PolicyDefinitionId).Assignments
+                $array = [System.Collections.ArrayList]@()
+                $null = $array.Add($htPoliciesWithAssignmentOnRgRes.($customPolicySet.PolicyDefinitionId).Assignments)
                 ($htPolicyWithAssignments).policySet.($customPolicySet.PolicyDefinitionId).Assignments = $array
             }
         }
@@ -734,8 +737,9 @@ tf.init();}}
     $htRoleWithAssignments = @{}
     foreach ($roleDef in $rbacAll | Sort-Object -Property RoleAssignmentId -Unique | Group-Object -Property RoleId) {
         if (-not ($htRoleWithAssignments).($roleDef.Name)) {
-            ($htRoleWithAssignments).($roleDef.Name) = @{}
-            ($htRoleWithAssignments).($roleDef.Name).Assignments = $roleDef.group
+            ($htRoleWithAssignments).($roleDef.Name) = @{
+                Assignments = [array]($roleDef.group)
+            }
         }
     }
 
@@ -843,7 +847,7 @@ tf.init();}}
             $null = $arrayRoleDefinitionsForCSVExport.Add([PSCustomObject]@{
                     Name                  = $role.Name
                     Id                    = $role.Id
-                    Description           = $role.Json.description
+                    Description           = $role.Json.properties.description
                     Type                  = $roleType
                     AssignmentsCount      = $assignmentsCount
                     AssignableScopesCount = $AssignableScopesCount

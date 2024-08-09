@@ -43,7 +43,7 @@
     use this parameter if Resource Diagnostics Policy Lifecycle recommendations should not be created
 
 .PARAMETER NoAADGroupsResolveMembers
-    use this parameter if Azure Active Directory Group memberships should not be resolved for Role assignments where identity type is 'Group'
+    use this parameter if Microsoft Entra ID Group memberships should not be resolved for Role assignments where identity type is 'Group'
 
 .PARAMETER AADServicePrincipalExpiryWarningDays
     define Service Principal Secret and Certificate grace period (lifetime below the defined will be marked for warning / default is 14 days)
@@ -62,7 +62,7 @@
     use this parameter if Azure Consumption data should not be exported (CSV)
 
 .PARAMETER ThrottleLimit
-    Leveraging PowerShell Core´s parallel capability you can define the ThrottleLimit (default=5)
+    Leveraging PowerShell Core's parallel capability you can define the ThrottleLimit (default=5)
 
 .PARAMETER DoTranscript
     Log the console output
@@ -71,7 +71,10 @@
     Define the direction the Mermaid based HierarchyMap should be built TD (default) = TopDown (Horizontal), LR = LeftRight (Vertical)
 
 .PARAMETER SubscriptionId4AzContext
-    Define the Subscription Id to use for AzContext (default is to use a random Subscription Id)
+    Define the Subscription Id to use for AzContext (default is to use a random Subscription Id) #consult the AzAPICall GitHub repository for details aka.ms/AzAPICall
+
+.PARAMETER TenantId4AzContext
+    Define the Tenant Id to use for AzContext. Default is to use the Tenant Id from the current context #consult the AzAPICall GitHub repository for details aka.ms/AzAPICall
 
 .PARAMETER NoCsvExport
     Export enriched 'Role assignments' data, enriched 'Policy assignments' data and 'all resources' (subscriptionId, mgPath, resourceType, id, name, location, tags, createdTime, changedTime)
@@ -124,7 +127,7 @@
     Q: Why would you want to do this? A: In larger tenants the ScopeInsights section blows up the html file (up to unusable due to html file size)
 
 .PARAMETER AADGroupMembersLimit
-    Defines the limit (default=500) of AAD Group members; For AAD Groups that have more members than the defined limit Group members will not be resolved
+    Defines the limit (default=500) of Microsoft Entra group members; For Microsoft Entra groups that have more members than the defined limit group members will not be resolved
 
 .PARAMETER NoResources
     Will speed up the processing time but information like Resource diagnostics capability, resource type stats, UserAssigned Identities assigned to Resources is excluded (featured for large tenants)
@@ -218,7 +221,7 @@
     Define if Resource Diagnostics Policy Lifecycle recommendations should not be created
     PS C:\>.\AzGovVizParallel.ps1 -ManagementGroupId <your-Management-Group-Id> -NoResourceDiagnosticsPolicyLifecycle
 
-    Define if Azure Active Directory Group memberships should not be resolved for Role assignments where identity type is 'Group'
+    Define if Microsoft Entra ID Group memberships should not be resolved for Role assignments where identity type is 'Group'
     PS C:\>.\AzGovVizParallel.ps1 -ManagementGroupId <your-Management-Group-Id> -NoAADGroupsResolveMembers
 
     Define Service Principal Secret and Certificate grace period (lifetime below the defined will be marked for warning / default is 14 days)
@@ -233,7 +236,7 @@
     Define for which time period (days) Azure Consumption data should be gathered; e.g. 14 days; default is 1 day
     PS C:\>.\AzGovVizParallel.ps1 -ManagementGroupId <your-Management-Group-Id> -AzureConsumptionPeriod 14
 
-    Define the number of script blocks running in parallel. Leveraging PowerShell Core´s parallel capability you can define the ThrottleLimit (default=5)
+    Define the number of script blocks running in parallel. Leveraging PowerShell Core's parallel capability you can define the ThrottleLimit (default=5)
     PS C:\>.\AzGovVizParallel.ps1 -ManagementGroupId <your-Management-Group-Id> -ThrottleLimit 10
 
     Define if you want to log the console output
@@ -242,8 +245,11 @@
     Define the direction the Mermaid based HierarchyMap should be built in Markdown TD = TopDown (Horizontal), LR = LeftRight (Vertical)
     PS C:\>.\AzGovVizParallel.ps1 -ManagementGroupId <your-Management-Group-Id> -MermaidDirection "LR"
 
-    Define the Subscription Id to use for AzContext (default is to use a random Subscription Id)
+    Define the Subscription Id to use for AzContext (default is to use a random Subscription Id) #consult the AzAPICall GitHub repository for details aka.ms/AzAPICall
     PS C:\>.\AzGovVizParallel.ps1 -ManagementGroupId <your-Management-Group-Id> -SubscriptionId4AzContext "<your-Subscription-Id>"
+
+    Define the Tenant Id to use for AzContext (default is to use the Tenant Id from the current context) #consult the AzAPICall GitHub repository for details aka.ms/AzAPICall
+    PS C:\>.\AzGovVizParallel.ps1 -ManagementGroupId <your-Management-Group-Id> -TenantId4AzContext "<your-Tenant-Id>"
 
     Do not Export enriched 'Role assignments' data, enriched 'Policy assignments' data and 'all resources' (subscriptionId, mgPath, resourceType, id, name, location, tags, createdTime, changedTime)
     PS C:\>.\AzGovVizParallel.ps1 -ManagementGroupId <your-Management-Group-Id> -NoCsvExport
@@ -273,7 +279,7 @@
     If the parameter switch is true then the following parameters will be set:
     -PolicyAtScopeOnly $true
     -RBACAtScopeOnly $true
-    - NoResourceProvidersAtAll $true
+    -NoResourceProvidersAtAll $true
     -NoScopeInsights $true
     PS C:\>.\AzGovVizParallel.ps1 -ManagementGroupId <your-Management-Group-Id> -LargeTenant
 
@@ -296,7 +302,7 @@
     Note if you use parameter -LargeTenant then parameter -NoScopeInsights will be set to true
     PS C:\>.\AzGovVizParallel.ps1 -ManagementGroupId <your-Management-Group-Id> -NoScopeInsights
 
-    Defines the limit (default=500) of AAD Group members; For AAD Groups that have more members than the defined limit Group members will not be resolved
+    Defines the limit (default=500) of Microsoft Entra group members; For groups that have more members than the defined limit group members will not be resolved
     PS C:\>.\AzGovVizParallel.ps1 -ManagementGroupId <your-Management-Group-Id> -AADGroupMembersLimit 750
 
     Will speed up the processing time but information like Resource diagnostics capability, resource type stats, UserAssigned Identities assigned to Resources is excluded (featured for large tenants)
@@ -359,13 +365,30 @@ Param
     $Product = 'AzGovViz',
 
     [string]
-    $AzAPICallVersion = '1.1.72',
-
-    [string]
-    $ProductVersion = '6.3.0',
+    $ProductVersion = '6.4.5',
 
     [string]
     $GithubRepository = 'aka.ms/AzGovViz',
+
+    # <--- AzAPICall related parameters #consult the AzAPICall GitHub repository for details aka.ms/AzAPICall
+    [string]
+    $AzAPICallVersion = '1.2.1',
+
+    [switch]
+    $DebugAzAPICall,
+
+    [switch]
+    $AzAPICallSkipAzContextSubscriptionValidation,
+
+    [string]
+    $SubscriptionId4AzContext = 'undefined',
+
+    [string]
+    $TenantId4AzContext = 'undefined',
+    # AzAPICall related parameters --->
+
+    [string]
+    $ARMLocation = 'westeurope',
 
     [string]
     $ScriptPath = 'pwsh', #e.g. 'myfolder\pwsh'
@@ -375,9 +398,6 @@ Param
 
     [switch]
     $AzureDevOpsWikiAsCode, #deprecated - Based on environment variables the script will detect the code run platform
-
-    [switch]
-    $DebugAzAPICall,
 
     [switch]
     $NoCsvExport,
@@ -434,8 +454,11 @@ Param
     [switch]
     $DoAzureConsumption,
 
+    [switch]
+    $DoAzureConsumptionPreviousMonth,
+
     [int]
-    $AzureConsumptionPeriod = 1,
+    $AzureConsumptionPeriod = 2,
 
     [switch]
     $NoAzureConsumptionReportExportToCSV,
@@ -461,9 +484,6 @@ Param
 
     [Alias('AzureDevOpsWikiHierarchyDirection')]
     [parameter(ValueFromPipeline)][ValidateSet('TD', 'LR')][string]$MermaidDirection = 'TD',
-
-    [string]
-    $SubscriptionId4AzContext = 'undefined',
 
     [int]
     $ChangeTrackingDays = 14,
@@ -561,14 +581,14 @@ Param
     [switch]
     $ShowRunIdentifier,
 
-    #https://docs.microsoft.com/en-us/azure/azure-resource-manager/management/azure-subscription-service-limits#role-based-access-control-limits
+    #https://learn.microsoft.com/azure/azure-resource-manager/management/azure-subscription-service-limits#role-based-access-control-limits
     [int]
     $LimitRBACCustomRoleDefinitionsTenant = 5000,
 
     [int]
     $LimitRBACRoleAssignmentsManagementGroup = 500,
 
-    #https://docs.microsoft.com/en-us/azure/governance/policy/overview#maximum-count-of-azure-policy-objects
+    #https://learn.microsoft.com/azure/governance/policy/overview#maximum-count-of-azure-policy-objects
     [int]
     $LimitPOLICYPolicyAssignmentsManagementGroup = 200,
 
@@ -596,7 +616,7 @@ Param
     [int]
     $LimitPOLICYPolicySetDefinitionsScopedSubscription = 200,
 
-    #https://docs.microsoft.com/en-us/azure/azure-resource-manager/management/azure-subscription-service-limits#subscription-limits
+    #https://learn.microsoft.com/azure/azure-resource-manager/management/azure-subscription-service-limits#subscription-limits
     [int]
     $LimitResourceGroups = 980,
 
@@ -607,7 +627,7 @@ Param
     $MSTenantIds = @('2f4a9838-26b7-47ee-be60-ccc1fdec5953', '33e01921-4d64-4f8c-a055-5bdaffd5e33d'),
 
     [array]
-    $ValidPolicyEffects = @('append', 'audit', 'auditIfNotExists', 'deny', 'deployIfNotExists', 'modify', 'manual', 'disabled', 'EnforceRegoPolicy', 'enforceSetting')
+    $ValidPolicyEffects = @('addToNetworkGroup', 'append', 'audit', 'auditIfNotExists', 'deny', 'denyAction', 'deployIfNotExists', 'modify', 'manual', 'disabled', 'EnforceRegoPolicy', 'enforceSetting', 'mutate')
 )
 
 $Error.clear()
@@ -628,6 +648,7 @@ if ($ManagementGroupId -match ' ') {
 }
 
 #region Functions
+. ".\$($ScriptPath)\functions\getPrivateEndpointCapableResourceTypes.ps1"
 . ".\$($ScriptPath)\functions\validateLeastPrivilegeForUser.ps1"
 . ".\$($ScriptPath)\functions\getPolicyRemediation.ps1"
 . ".\$($ScriptPath)\functions\getPolicyHash.ps1"
@@ -760,21 +781,54 @@ verifyModules3rd -modules $modules
 #Region initAZAPICall
 Write-Host "Initialize 'AzAPICall'"
 $parameters4AzAPICallModule = @{
-    DebugAzAPICall           = $DebugAzAPICall
-    SubscriptionId4AzContext = $SubscriptionId4AzContext
-    GithubRepository         = $GithubRepository
+    DebugAzAPICall                      = $DebugAzAPICall
+    SubscriptionId4AzContext            = $SubscriptionId4AzContext
+    TenantId4AzContext                  = $TenantId4AzContext
+    GithubRepository                    = $GithubRepository
+    SkipAzContextSubscriptionValidation = $AzAPICallSkipAzContextSubscriptionValidation
 }
 $azAPICallConf = initAzAPICall @parameters4AzAPICallModule
 Write-Host " Initialize 'AzAPICall' succeeded" -ForegroundColor Green
+
+Write-Host " Setting `$ignoreARMLocation to `$false" -ForegroundColor Yellow
+$ignoreARMLocation = $false
+
+if ($azApiCallConf['htParameters'].azureCloudEnvironment -ne 'AzureCloud') {
+    Write-Host " Non Public Cloud ($($azApiCallConf['htParameters'].azureCloudEnvironment)) -> Setting `$ignoreARMLocation to `$true" -ForegroundColor Yellow
+    $ignoreARMLocation = $true
+}
+
+if (-not $ignoreARMLocation) {
+    if ($azApiCallConf['htParameters'].ARMLocations.count -gt 0) {
+        Write-Host ''
+        Write-Host "Check if provided parameter value for -ARMLocation '$($ARMLocation)' is valid"
+        if ($azApiCallConf['htParameters'].ARMLocations -notcontains $ARMLocation) {
+            Write-Host " Parameter value for -ARMLocation '$($ARMLocation)' is not valid - please provide a valid ARMLocation" -ForegroundColor DarkRed
+            Write-Host " Valid ARMLocations: '$($azApiCallConf['htParameters'].ARMLocations -join ', ')'" -ForegroundColor Yellow
+            throw 'ARMLocation validation failed!'
+        }
+        else {
+            Write-Host " Parameter value for -ARMLocation '$($ARMLocation)' is valid" -ForegroundColor Green
+        }
+    }
+    else {
+        Write-Host ''
+        Write-Host "Skipping ARMLocation validation - no locations found in '`$azApiCallConf['htParameters'].ARMLocations'. (-SkipAzContextSubscriptionValidation = '$skipAzContextSubscriptionValidation')"
+        Write-Host " Setting `$ignoreARMLocation to `$true" -ForegroundColor Yellow
+        $ignoreARMLocation = $true
+    }
+}
 #EndRegion initAZAPICall
 
 #region required AzAPICall version
-if (-not ([System.Version]"$($azapicallConf['htParameters'].azAPICallModuleVersion)" -ge [System.Version]'1.1.72')) {
-    Write-Host 'AzAPICall version check failed -> https://aka.ms/AzAPICall; https://www.powershellgallery.com/packages/AzAPICall'
-    throw 'This version of Azure Governance Visualizer requires AzAPICall module version 1.1.72 or greater'
+if (-not ([System.Version]"$($azapicallConf['htParameters'].azAPICallModuleVersion)" -ge [System.Version]'1.2.1')) {
+    Write-Host ''
+    Write-Host 'Azure Governance Visualizer version '$ProductVersion' - AzAPICall PowerShell module version check failed -> https://aka.ms/AzAPICall; https://www.powershellgallery.com/packages/AzAPICall'
+    throw "This version of Azure Governance Visualizer '$ProductVersion' requires AzAPICall PowerShell module version '1.2.1' or greater"
 }
 else {
-    Write-Host "AzAPICall module version requirement check succeeded: 1.1.72 or greater - current: $($azapicallConf['htParameters'].azAPICallModuleVersion) " -ForegroundColor Green
+    Write-Host ''
+    Write-Host "Azure Governance Visualizer version '$ProductVersion' - AzAPICall PowerShell module version requirement check succeeded: '1.2.1' or greater - current: '$($azapicallConf['htParameters'].azAPICallModuleVersion)' " -ForegroundColor Green
 }
 #endregion required AzAPICall version
 
@@ -854,7 +908,7 @@ else {
 
 getFileNaming
 
-Write-Host "Running Azure Governance Visualizer for ManagementGroupId: '$ManagementGroupId'" -ForegroundColor Yellow
+Write-Host "Running Azure Governance Visualizer ($ProductVersion) for ManagementGroupId: '$ManagementGroupId'" -ForegroundColor Yellow
 
 $newTable = [System.Collections.ArrayList]::Synchronized((New-Object System.Collections.ArrayList))
 $htMgDetails = @{}
@@ -866,7 +920,6 @@ if (-not $HierarchyMapOnly) {
     $htCacheDefinitionsPolicySet = [System.Collections.Hashtable]::Synchronized((New-Object System.Collections.Hashtable)) #@{} #[System.Collections.Hashtable]::Synchronized((New-Object System.Collections.Hashtable)) #@{}
     $htCacheDefinitionsRole = [System.Collections.Hashtable]::Synchronized((New-Object System.Collections.Hashtable)) #@{} #[System.Collections.Hashtable]::Synchronized((New-Object System.Collections.Hashtable)) #@{}
     $htCacheDefinitionsBlueprint = [System.Collections.Hashtable]::Synchronized((New-Object System.Collections.Hashtable)) #@{} #[System.Collections.Hashtable]::Synchronized((New-Object System.Collections.Hashtable)) #@{}
-    $htRoleDefinitionIdsUsedInPolicy = [System.Collections.Hashtable]::Synchronized((New-Object System.Collections.Hashtable)) #@{}
     $htRoleAssignmentsPIM = [System.Collections.Hashtable]::Synchronized((New-Object System.Collections.Hashtable)) #@{} #[System.Collections.Hashtable]::Synchronized((New-Object System.Collections.Hashtable)) #@{}
     $htPoliciesUsedInPolicySets = @{}
     $htSubscriptionTags = [System.Collections.Hashtable]::Synchronized((New-Object System.Collections.Hashtable)) #@{}
@@ -888,6 +941,10 @@ if (-not $HierarchyMapOnly) {
         $arrayTotalCostSummary = @()
         $azureConsumptionStartDate = ((Get-Date).AddDays( - ($($AzureConsumptionPeriod)))).ToString('yyyy-MM-dd')
         $azureConsumptionEndDate = ((Get-Date).AddDays(-1)).ToString('yyyy-MM-dd')
+        if ($azAPICallConf['htParameters'].DoAzureConsumptionPreviousMonth -eq $true) {
+            $azureConsumptionStartDate = ((Get-Date).AddMonths(-1).AddDays( - $((Get-Date).Day) + 1)).ToString('yyyy-MM-dd')
+            $azureConsumptionEndDate = ((Get-Date).AddDays( - $((Get-Date).Day))).ToString('yyyy-MM-dd')
+        }
     }
     $customDataCollectionDuration = [System.Collections.ArrayList]::Synchronized((New-Object System.Collections.ArrayList))
     $htResourceLocks = [System.Collections.Hashtable]::Synchronized((New-Object System.Collections.Hashtable)) #@{}
@@ -1052,7 +1109,32 @@ if (-not $HierarchyMapOnly) {
     cacheBuiltIn
     showMemoryUsage
 
+    if ($subsToProcessInCustomDataCollection.count -eq 0) {
+        Write-Host '--- Info ---' -ForegroundColor Yellow
+        Write-Host '--- Seems this tenant has no subscriptions. Activating parameter -ManagementGroupsOnly' -ForegroundColor Yellow
+        $ManagementGroupsOnly = $true
+        $script:azAPICallConf['htParameters'].ManagementGroupsOnly = $true
+    }
     if (-not $ManagementGroupsOnly) {
+
+        #region sanity check / AzContext has subscription
+        if (-not $azAPICallConf['checkcontext'].Subscription.Id) {
+            Write-Host '--- Sanity check ---' -ForegroundColor Yellow
+            Write-Host 'Current AzContext has no subscription:' -ForegroundColor Yellow
+            Write-Host ($azAPICallConf['checkcontext'] | Select-Object -ExcludeProperty Environment, ExtendedProperties | ConvertTo-Json -Depth 99)
+            if ($AzAPICallSkipAzContextSubscriptionValidation) {
+                Write-Host 'You have enabled the parameter -AzAPICallSkipAzContextSubscriptionValidation' -ForegroundColor Yellow
+                Write-Host "Please use the parameter -SubscriptionId4AzContext '<subscriptionId>'" -ForegroundColor Yellow
+                throw
+            }
+            else {
+                Write-Host 'You have NOT enabled the parameter -AzAPICallSkipAzContextSubscriptionValidation, but somehow reached this point in the script.' -ForegroundColor Yellow
+                Write-Host "Please use the parameter -SubscriptionId4AzContext '<subscriptionId>'" -ForegroundColor Yellow
+                throw
+            }
+        }
+        #endregion sanity check / AzContext has subscription
+
         #region Getting Tenant Resource Providers
         $startGetRPs = Get-Date
         $currentTask = 'Getting Tenant Resource Providers'
@@ -1078,46 +1160,7 @@ if (-not $HierarchyMapOnly) {
         Write-Host "Getting Tenant Resource Providers duration: $((New-TimeSpan -Start $startGetRPs -End $endGetRPs).TotalMinutes) minutes ($((New-TimeSpan -Start $startGetRPs -End $endGetRPs).TotalSeconds) seconds)"
         #endregion Getting Tenant Resource Providers
 
-        #region Getting Available Private Endpoint Types
-        $startGetAvailablePrivateEndpointTypes = Get-Date
-
-        $currentTask = 'Getting Locations'
-        Write-Host $currentTask
-        $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/subscriptions/$($azAPICallConf['checkcontext'].Subscription.Id)/locations?api-version=2020-01-01"
-        $method = 'GET'
-        $getLocations = AzAPICall -AzAPICallConfiguration $azAPICallConf -uri $uri -method $method -currentTask $currentTask
-        Write-Host " Returned $($getLocations.Count) locations"
-
-        Write-Host "Getting 'Available Private Endpoint Types' for $($getLocations.Count) locations"
-        $getLocations | ForEach-Object -Parallel {
-            $location = $_
-            $azAPICallConf = $using:azAPICallConf
-            $htAvailablePrivateEndpointTypes = $using:htAvailablePrivateEndpointTypes
-            $currentTask = "Getting 'Available Private Endpoint Types' for location $($location.name)"
-            #Write-Host $currentTask
-            $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/subscriptions/$($azAPICallConf['checkcontext'].Subscription.Id)/providers/Microsoft.Network/locations/$($location.name)/availablePrivateEndpointTypes?api-version=2022-07-01"
-            $method = 'GET'
-            $availablePrivateEndpointTypes = AzAPICall -AzAPICallConfiguration $azAPICallConf -uri $uri -method $method -currentTask $currentTask -skipOnErrorCode 400, 409
-            Write-Host " Returned $($availablePrivateEndpointTypes.Count) 'Available Private Endpoint Types' for location $($location.name)"
-            foreach ($availablePrivateEndpointType in $availablePrivateEndpointTypes) {
-                if (-not $htAvailablePrivateEndpointTypes.(($availablePrivateEndpointType.resourceName).ToLower())) {
-                    $script:htAvailablePrivateEndpointTypes.(($availablePrivateEndpointType.resourceName).ToLower()) = @{}
-                }
-            }
-        } -ThrottleLimit $ThrottleLimit
-
-        if ($htAvailablePrivateEndpointTypes.Keys.Count -gt 0) {
-            Write-Host " Created ht for $($htAvailablePrivateEndpointTypes.Keys.Count) 'Available Private Endpoint Types'"
-        }
-        else {
-            $throwmsg = "$($htAvailablePrivateEndpointTypes.Keys.Count) 'Available Private Endpoint Types' - Please use another Subscription for the AzContext (current subscriptionId: '$($azAPICallConf['checkcontext'].Subscription.Id)') -> use parameter: -SubscriptionId4AzContext '<subscriptionId>'"
-            Write-Host $throwmsg -ForegroundColor DarkRed
-            Throw $throwmsg
-        }
-
-        $endGetAvailablePrivateEndpointTypes = Get-Date
-        Write-Host "Getting 'Available Private Endpoint Types' duration: $((New-TimeSpan -Start $startGetAvailablePrivateEndpointTypes -End $endGetAvailablePrivateEndpointTypes).TotalMinutes) minutes ($((New-TimeSpan -Start $startGetAvailablePrivateEndpointTypes -End $endGetAvailablePrivateEndpointTypes).TotalSeconds) seconds)"
-        #endregion Getting Available Private Endpoint Types
+        getPrivateEndpointCapableResourceTypes
     }
 
     Write-Host 'Collecting custom data'
@@ -1303,6 +1346,42 @@ if (-not $HierarchyMapOnly) {
     $tenantBuiltInPoliciesCount = ($tenantBuiltInPolicies).count
     $tenantCustomPolicies = (($htCacheDefinitionsPolicy).Values).where({ $_.Type -eq 'Custom' } )
     $tenantCustomPoliciesCount = ($tenantCustomPolicies).count
+
+    #roleDefinitions used in policyDefinitions
+    Write-Host 'Processing roleDefinitions used in policyDefinitions'
+    $startRoleDefinitionsUsedInPolicyDefinitions = Get-Date
+    $htRoleDefinitionIdsUsedInPolicy = @{}
+    foreach ($policyDefinitionId in $htCacheDefinitionsPolicy.Keys) {
+        if (-not [string]::IsNullOrWhiteSpace($htCacheDefinitionsPolicy.($policyDefinitionId).Json.properties.policyRule.then.details.roleDefinitionIds)) {
+            foreach ($roledefinitionId in $htCacheDefinitionsPolicy.($policyDefinitionId).Json.properties.policyRule.then.details.roleDefinitionIds) {
+                if (-not [string]::IsNullOrWhitespace($roledefinitionId)) {
+                    if (-not $htCacheDefinitionsRole.($roledefinitionId -replace '.*/')) {
+                        Write-Host "Finding: policyDefinitionId '$($policyDefinitionId)' has unknown roleDefinitionId '$roledefinitionId' in policyRule.then.details.roleDefinitionIds" -ForegroundColor DarkRed
+                    }
+                    else {
+                        if (-not $htRoleDefinitionIdsUsedInPolicy.($roledefinitionId -replace '.*/')) {
+                            $htRoleDefinitionIdsUsedInPolicy.($roledefinitionId -replace '.*/') = [System.Collections.ArrayList]@()
+                        }
+                        try {
+                            $null = $htRoleDefinitionIdsUsedInPolicy.($roledefinitionId -replace '.*/').Add($policyDefinitionId)
+                        }
+                        catch {
+                            Write-Host "policyDefinitionId '$($policyDefinitionId)' JSON:"
+                            $htCacheDefinitionsPolicy.($policyDefinitionId).Json | ConvertTo-Json -Depth 99
+                            Write-Host '--->'
+                            Throw "Failed: `$policyDefinitionId: '$($policyDefinitionId)' trying to add `$roledefinitionId: '$roledefinitionId' from policyRule.then.details.roleDefinitionIds to `$htRoleDefinitionIdsUsedInPolicy.(`$roledefinitionId).UsedInPolicies"
+                        }
+                    }
+                }
+                else {
+                    Write-Host "Finding: policyDefinitionId '$($policyDefinitionId)' has empty roleDefinitionId in policyRule.then.details.roleDefinitionIds" -ForegroundColor DarkRed
+                }
+            }
+        }
+    }
+    Write-Host " $($htRoleDefinitionIdsUsedInPolicy.Keys.Count) roleDefinitions are used in policyDefinitions"
+    $endRoleDefinitionsUsedInPolicyDefinitions = Get-Date
+    Write-Host " roleDefinitions used in policyDefinitions duration: $((New-TimeSpan -Start $startRoleDefinitionsUsedInPolicyDefinitions -End $endRoleDefinitionsUsedInPolicyDefinitions).TotalSeconds) seconds"
 
     #hashes for parity builtin/custom
     Write-Host 'Processing Policy custom/built-In parity check'
@@ -2397,15 +2476,15 @@ apiCallTracking -stage 'Summary' -spacing ''
 
 $endAzGovViz = Get-Date
 $durationProduct = (New-TimeSpan -Start $startAzGovViz -End $endAzGovViz)
-Write-Host "Azure Governance Visualizer duration: $($durationProduct.TotalMinutes) minutes"
+Write-Host "Azure Governance Visualizer ($ProductVersion) duration: $($durationProduct.TotalMinutes) minutes"
 
 #end
 $endTime = Get-Date -Format 'dd-MMM-yyyy HH:mm:ss'
-Write-Host "End Azure Governance Visualizer $endTime"
+Write-Host "End Azure Governance Visualizer ($ProductVersion) $endTime"
 
 Write-Host 'Checking for errors'
 if ($Error.Count -gt 0) {
-    Write-Host "Dumping $($Error.Count) Errors (handled by Azure Governance Visualizer):"
+    Write-Host "Dumping $($Error.Count) Errors (handled by Azure Governance Visualizer ($ProductVersion)):"
     $Error | Out-Host
 }
 else {
@@ -2420,10 +2499,10 @@ if ($DoTranscript) {
 
 Write-Host ''
 Write-Host '--------------------'
-Write-Host 'Azure Governance Visualizer completed successful' -ForegroundColor Green
+Write-Host "Azure Governance Visualizer ($ProductVersion) completed successful" -ForegroundColor Green
 
 if ($Error.Count -gt 0) {
-    Write-Host "Don't bother about dumped errors"
+    Write-Host "Don't bother about dumped errors, execution was successful - if you see errors above this line, those were handled by the tool and are only dumped informational."
 }
 
 if ($DoPSRule) {
@@ -2467,6 +2546,6 @@ if ($htResourcePropertiesConvertfromJSONFailed.Keys.Count -gt 0) {
 
 #region runIdentifier
 if ($ShowRunIdentifier) {
-    Write-Host "Azure Governance Visualizer run identifier: '$($statsIdentifier)'"
+    Write-Host "Azure Governance Visualizer ($ProductVersion) run identifier: '$($statsIdentifier)'"
 }
 #endregion runIdentifier

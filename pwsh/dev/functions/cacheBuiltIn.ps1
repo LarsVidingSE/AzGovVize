@@ -14,16 +14,18 @@ function cacheBuiltIn {
         $htCacheDefinitionsPolicy = $using:htCacheDefinitionsPolicy
         $htCacheDefinitionsPolicySet = $using:htCacheDefinitionsPolicySet
         $htCacheDefinitionsRole = $using:htCacheDefinitionsRole
-        $htRoleDefinitionIdsUsedInPolicy = $using:htRoleDefinitionIdsUsedInPolicy
         $ValidPolicyEffects = $using:ValidPolicyEffects
         $htHashesBuiltInPolicy = $using:htHashesBuiltInPolicy
+        #vars
+        $ARMLocation = $using:ARMLocation
+        $ignoreARMLocation = $using:ignoreARMLocation
         #functions
         $function:detectPolicyEffect = $using:funcDetectPolicyEffect
         $function:getPolicyHash = $using:funcGetPolicyHash
 
         if ($builtInCapability -eq 'PolicyDefinitions') {
             $currentTask = 'Caching built-in Policy definitions'
-            #Write-Host " $currentTask"
+            Write-Host " $currentTask"
             $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/providers/Microsoft.Authorization/policyDefinitions?api-version=2021-06-01&`$filter=policyType eq 'BuiltIn'"
             $method = 'GET'
             $requestPolicyDefinitionAPI = AzAPICall -AzAPICallConfiguration $azAPICallConf -uri $uri -method $method -currentTask $currentTask
@@ -32,25 +34,27 @@ function cacheBuiltIn {
             $builtinPolicyDefinitions = $requestPolicyDefinitionAPI.where( { $_.properties.policyType -eq 'BuiltIn' } )
 
             foreach ($builtinPolicyDefinition in $builtinPolicyDefinitions) {
-                $script:htCacheDefinitionsPolicy.(($builtinPolicyDefinition.Id).ToLower()) = @{}
-                $script:htCacheDefinitionsPolicy.(($builtinPolicyDefinition.Id).ToLower()).Id = ($builtinPolicyDefinition.Id).ToLower()
-                $script:htCacheDefinitionsPolicy.(($builtinPolicyDefinition.Id).ToLower()).ScopeMGLevel = ''
-                $script:htCacheDefinitionsPolicy.(($builtinPolicyDefinition.Id).ToLower()).Scope = 'n/a'
-                $script:htCacheDefinitionsPolicy.(($builtinPolicyDefinition.Id).ToLower()).ScopeMgSub = 'n/a'
-                $script:htCacheDefinitionsPolicy.(($builtinPolicyDefinition.Id).ToLower()).ScopeId = 'n/a'
-                $script:htCacheDefinitionsPolicy.(($builtinPolicyDefinition.Id).ToLower()).DisplayName = $builtinPolicyDefinition.Properties.displayname
-                $script:htCacheDefinitionsPolicy.(($builtinPolicyDefinition.Id).ToLower()).Name = $builtinPolicyDefinition.Name
-                $script:htCacheDefinitionsPolicy.(($builtinPolicyDefinition.Id).ToLower()).Description = $builtinPolicyDefinition.Properties.description
-                $script:htCacheDefinitionsPolicy.(($builtinPolicyDefinition.Id).ToLower()).Type = $builtinPolicyDefinition.Properties.policyType
-                $script:htCacheDefinitionsPolicy.(($builtinPolicyDefinition.Id).ToLower()).Category = $builtinPolicyDefinition.Properties.metadata.category
-                $script:htCacheDefinitionsPolicy.(($builtinPolicyDefinition.Id).ToLower()).Version = $builtinPolicyDefinition.Properties.metadata.version
-                $script:htCacheDefinitionsPolicy.(($builtinPolicyDefinition.Id).ToLower()).PolicyDefinitionId = ($builtinPolicyDefinition.Id).ToLower()
-                $script:htCacheDefinitionsPolicy.(($builtinPolicyDefinition.Id).ToLower()).LinkToAzAdvertizer = "<a class=`"externallink`" href=`"https://www.azadvertizer.net/azpolicyadvertizer/$(($builtinPolicyDefinition.Id -replace '.*/')).html`" target=`"_blank`" rel=`"noopener`">$($builtinPolicyDefinition.Properties.displayname)</a>"
-                $script:htCacheDefinitionsPolicy.(($builtinPolicyDefinition.Id).ToLower()).ALZ = $false
-                $script:htCacheDefinitionsPolicy.(($builtinPolicyDefinition.Id).ToLower()).ALZState = ''
-                $script:htCacheDefinitionsPolicy.(($builtinPolicyDefinition.Id).ToLower()).ALZLatestVer = ''
-                $script:htCacheDefinitionsPolicy.(($builtinPolicyDefinition.Id).ToLower()).ALZIdentificationLevel = ''
-                $script:htCacheDefinitionsPolicy.(($builtinPolicyDefinition.Id).ToLower()).ALZPolicyName = ''
+                $script:htCacheDefinitionsPolicy.(($builtinPolicyDefinition.Id).ToLower()) = @{
+                    Id                     = ($builtinPolicyDefinition.Id).ToLower()
+                    ScopeMGLevel           = ''
+                    Scope                  = 'n/a'
+                    ScopeMgSub             = 'n/a'
+                    ScopeId                = 'n/a'
+                    DisplayName            = $builtinPolicyDefinition.Properties.displayname
+                    Name                   = $builtinPolicyDefinition.Name
+                    Description            = $builtinPolicyDefinition.Properties.description
+                    Type                   = $builtinPolicyDefinition.Properties.policyType
+                    Category               = $builtinPolicyDefinition.Properties.metadata.category
+                    Version                = $builtinPolicyDefinition.Properties.metadata.version
+                    PolicyDefinitionId     = ($builtinPolicyDefinition.Id).ToLower()
+                    LinkToAzAdvertizer     = "<a class=`"externallink`" href=`"https://www.azadvertizer.net/azpolicyadvertizer/$(($builtinPolicyDefinition.Id -replace '.*/')).html`" target=`"_blank`" rel=`"noopener`">$($builtinPolicyDefinition.Properties.displayname)</a>"
+                    ALZ                    = $false
+                    ALZState               = ''
+                    ALZLatestVer           = ''
+                    ALZIdentificationLevel = ''
+                    ALZPolicyName          = ''
+                }
+
                 if ($builtinPolicyDefinition.Properties.metadata.deprecated -eq $true -or $builtinPolicyDefinition.Properties.displayname -like "``[Deprecated``]*") {
                     $script:htCacheDefinitionsPolicy.(($builtinPolicyDefinition.Id).ToLower()).Deprecated = $builtinPolicyDefinition.Properties.metadata.deprecated
                 }
@@ -73,17 +77,6 @@ function cacheBuiltIn {
 
                 if (-not [string]::IsNullOrWhiteSpace($builtinPolicyDefinition.properties.policyRule.then.details.roleDefinitionIds)) {
                     $script:htCacheDefinitionsPolicy.(($builtinPolicyDefinition.Id).ToLower()).RoleDefinitionIds = $builtinPolicyDefinition.properties.policyRule.then.details.roleDefinitionIds
-                    foreach ($roledefinitionId in $builtinPolicyDefinition.properties.policyRule.then.details.roleDefinitionIds) {
-                        if (-not $htRoleDefinitionIdsUsedInPolicy.($roledefinitionId)) {
-                            $script:htRoleDefinitionIdsUsedInPolicy.($roledefinitionId) = @{}
-                            $script:htRoleDefinitionIdsUsedInPolicy.($roledefinitionId).UsedInPolicies = [array]$builtinPolicyDefinition.Id
-                        }
-                        else {
-                            $usedInPolicies = $htRoleDefinitionIdsUsedInPolicy.($roledefinitionId).UsedInPolicies
-                            $usedInPolicies += $builtinPolicyDefinition.Id
-                            $script:htRoleDefinitionIdsUsedInPolicy.($roledefinitionId).UsedInPolicies = $usedInPolicies
-                        }
-                    }
                 }
                 else {
                     $script:htCacheDefinitionsPolicy.(($builtinPolicyDefinition.Id).ToLower()).RoleDefinitionIds = 'n/a'
@@ -111,7 +104,7 @@ function cacheBuiltIn {
 
         if ($builtInCapability -eq 'PolicyDefinitionsStatic') {
             $currentTask = 'Caching static Policy definitions'
-            #Write-Host " $currentTask"
+            Write-Host " $currentTask"
             $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/providers/Microsoft.Authorization/policyDefinitions?api-version=2021-06-01&`$filter=policyType eq 'Static'"
             $method = 'GET'
             $requestPolicyDefinitionAPI = AzAPICall -AzAPICallConfiguration $azAPICallConf -uri $uri -method $method -currentTask $currentTask
@@ -120,25 +113,27 @@ function cacheBuiltIn {
             $staticPolicyDefinitions = $requestPolicyDefinitionAPI.where( { $_.properties.policyType -eq 'Static' } )
 
             foreach ($staticPolicyDefinition in $staticPolicyDefinitions) {
-                $script:htCacheDefinitionsPolicy.(($staticPolicyDefinition.Id).ToLower()) = @{}
-                $script:htCacheDefinitionsPolicy.(($staticPolicyDefinition.Id).ToLower()).Id = ($staticPolicyDefinition.Id).ToLower()
-                $script:htCacheDefinitionsPolicy.(($staticPolicyDefinition.Id).ToLower()).ScopeMGLevel = ''
-                $script:htCacheDefinitionsPolicy.(($staticPolicyDefinition.Id).ToLower()).Scope = 'n/a'
-                $script:htCacheDefinitionsPolicy.(($staticPolicyDefinition.Id).ToLower()).ScopeMgSub = 'n/a'
-                $script:htCacheDefinitionsPolicy.(($staticPolicyDefinition.Id).ToLower()).ScopeId = 'n/a'
-                $script:htCacheDefinitionsPolicy.(($staticPolicyDefinition.Id).ToLower()).DisplayName = $staticPolicyDefinition.Properties.displayname
-                $script:htCacheDefinitionsPolicy.(($staticPolicyDefinition.Id).ToLower()).Name = $staticPolicyDefinition.Name
-                $script:htCacheDefinitionsPolicy.(($staticPolicyDefinition.Id).ToLower()).Description = $staticPolicyDefinition.Properties.description
-                $script:htCacheDefinitionsPolicy.(($staticPolicyDefinition.Id).ToLower()).Type = $staticPolicyDefinition.Properties.policyType
-                $script:htCacheDefinitionsPolicy.(($staticPolicyDefinition.Id).ToLower()).Category = $staticPolicyDefinition.Properties.metadata.category
-                $script:htCacheDefinitionsPolicy.(($staticPolicyDefinition.Id).ToLower()).Version = $staticPolicyDefinition.Properties.metadata.version
-                $script:htCacheDefinitionsPolicy.(($staticPolicyDefinition.Id).ToLower()).PolicyDefinitionId = ($staticPolicyDefinition.Id).ToLower()
-                $script:htCacheDefinitionsPolicy.(($staticPolicyDefinition.Id).ToLower()).LinkToAzAdvertizer = "<a class=`"externallink`" href=`"https://www.azadvertizer.net/azpolicyadvertizer/$(($staticPolicyDefinition.Id -replace '.*/')).html`" target=`"_blank`" rel=`"noopener`">$($staticPolicyDefinition.Properties.displayname)</a>"
-                $script:htCacheDefinitionsPolicy.(($staticPolicyDefinition.Id).ToLower()).ALZ = $false
-                $script:htCacheDefinitionsPolicy.(($staticPolicyDefinition.Id).ToLower()).ALZState = ''
-                $script:htCacheDefinitionsPolicy.(($staticPolicyDefinition.Id).ToLower()).ALZLatestVer = ''
-                $script:htCacheDefinitionsPolicy.(($staticPolicyDefinition.Id).ToLower()).ALZIdentificationLevel = ''
-                $script:htCacheDefinitionsPolicy.(($staticPolicyDefinition.Id).ToLower()).ALZPolicyName = ''
+                $script:htCacheDefinitionsPolicy.(($staticPolicyDefinition.Id).ToLower()) = @{
+                    Id                     = ($staticPolicyDefinition.Id).ToLower()
+                    ScopeMGLevel           = ''
+                    Scope                  = 'n/a'
+                    ScopeMgSub             = 'n/a'
+                    ScopeId                = 'n/a'
+                    DisplayName            = $staticPolicyDefinition.Properties.displayname
+                    Name                   = $staticPolicyDefinition.Name
+                    Description            = $staticPolicyDefinition.Properties.description
+                    Type                   = $staticPolicyDefinition.Properties.policyType
+                    Category               = $staticPolicyDefinition.Properties.metadata.category
+                    Version                = $staticPolicyDefinition.Properties.metadata.version
+                    PolicyDefinitionId     = ($staticPolicyDefinition.Id).ToLower()
+                    LinkToAzAdvertizer     = "<a class=`"externallink`" href=`"https://www.azadvertizer.net/azpolicyadvertizer/$(($staticPolicyDefinition.Id -replace '.*/')).html`" target=`"_blank`" rel=`"noopener`">$($staticPolicyDefinition.Properties.displayname)</a>"
+                    ALZ                    = $false
+                    ALZState               = ''
+                    ALZLatestVer           = ''
+                    ALZIdentificationLevel = ''
+                    ALZPolicyName          = ''
+                }
+
 
                 if ($staticPolicyDefinition.Properties.metadata.deprecated -eq $true -or $staticPolicyDefinition.Properties.displayname -like "``[Deprecated``]*") {
                     $script:htCacheDefinitionsPolicy.(($staticPolicyDefinition.Id).ToLower()).Deprecated = $staticPolicyDefinition.Properties.metadata.deprecated
@@ -162,17 +157,6 @@ function cacheBuiltIn {
 
                 if (-not [string]::IsNullOrWhiteSpace($staticPolicyDefinition.properties.policyRule.then.details.roleDefinitionIds)) {
                     $script:htCacheDefinitionsPolicy.(($staticPolicyDefinition.Id).ToLower()).RoleDefinitionIds = $staticPolicyDefinition.properties.policyRule.then.details.roleDefinitionIds
-                    foreach ($roledefinitionId in $staticPolicyDefinition.properties.policyRule.then.details.roleDefinitionIds) {
-                        if (-not $htRoleDefinitionIdsUsedInPolicy.($roledefinitionId)) {
-                            $script:htRoleDefinitionIdsUsedInPolicy.($roledefinitionId) = @{}
-                            $script:htRoleDefinitionIdsUsedInPolicy.($roledefinitionId).UsedInPolicies = [array]$staticPolicyDefinition.Id
-                        }
-                        else {
-                            $usedInPolicies = $htRoleDefinitionIdsUsedInPolicy.($roledefinitionId).UsedInPolicies
-                            $usedInPolicies += $staticPolicyDefinition.Id
-                            $script:htRoleDefinitionIdsUsedInPolicy.($roledefinitionId).UsedInPolicies = $usedInPolicies
-                        }
-                    }
                 }
                 else {
                     $script:htCacheDefinitionsPolicy.(($staticPolicyDefinition.Id).ToLower()).RoleDefinitionIds = 'n/a'
@@ -183,7 +167,7 @@ function cacheBuiltIn {
         if ($builtInCapability -eq 'PolicySetDefinitions') {
 
             $currentTask = 'Caching built-in PolicySet definitions'
-            #Write-Host " $currentTask"
+            Write-Host " $currentTask"
             $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/providers/Microsoft.Authorization/policySetDefinitions?api-version=2021-06-01&`$filter=policyType eq 'BuiltIn'"
             $method = 'GET'
             $requestPolicySetDefinitionAPI = AzAPICall -AzAPICallConfiguration $azAPICallConf -uri $uri -method $method -currentTask $currentTask
@@ -191,26 +175,26 @@ function cacheBuiltIn {
             $builtinPolicySetDefinitions = $requestPolicySetDefinitionAPI.where( { $_.properties.policyType -eq 'BuiltIn' } )
             Write-Host " $($requestPolicySetDefinitionAPI.Count) built-in PolicySet definitions returned"
             foreach ($builtinPolicySetDefinition in $builtinPolicySetDefinitions) {
-                $script:htCacheDefinitionsPolicySet.(($builtinPolicySetDefinition.Id).ToLower()) = @{}
-                $script:htCacheDefinitionsPolicySet.(($builtinPolicySetDefinition.Id).ToLower()).Id = ($builtinPolicySetDefinition.Id).ToLower()
-                $script:htCacheDefinitionsPolicySet.(($builtinPolicySetDefinition.Id).ToLower()).ScopeMGLevel = ''
-                $script:htCacheDefinitionsPolicySet.(($builtinPolicySetDefinition.Id).ToLower()).Scope = 'n/a'
-                $script:htCacheDefinitionsPolicySet.(($builtinPolicySetDefinition.Id).ToLower()).ScopeMgSub = 'n/a'
-                $script:htCacheDefinitionsPolicySet.(($builtinPolicySetDefinition.Id).ToLower()).ScopeId = 'n/a'
-                $script:htCacheDefinitionsPolicySet.(($builtinPolicySetDefinition.Id).ToLower()).DisplayName = $builtinPolicySetDefinition.Properties.displayname
-                $script:htCacheDefinitionsPolicySet.(($builtinPolicySetDefinition.Id).ToLower()).Name = $builtinPolicySetDefinition.Name
-                $script:htCacheDefinitionsPolicySet.(($builtinPolicySetDefinition.Id).ToLower()).Description = $builtinPolicySetDefinition.Properties.description
-                $script:htCacheDefinitionsPolicySet.(($builtinPolicySetDefinition.Id).ToLower()).Type = $builtinPolicySetDefinition.Properties.policyType
-                $script:htCacheDefinitionsPolicySet.(($builtinPolicySetDefinition.Id).ToLower()).Category = $builtinPolicySetDefinition.Properties.metadata.category
-                $script:htCacheDefinitionsPolicySet.(($builtinPolicySetDefinition.Id).ToLower()).Version = $builtinPolicySetDefinition.Properties.metadata.version
-                $script:htCacheDefinitionsPolicySet.(($builtinPolicySetDefinition.Id).ToLower()).PolicyDefinitionId = ($builtinPolicySetDefinition.Id).ToLower()
-                $script:htCacheDefinitionsPolicySet.(($builtinPolicySetDefinition.Id).ToLower()).LinkToAzAdvertizer = "<a class=`"externallink`" href=`"https://www.azadvertizer.net/azpolicyinitiativesadvertizer/$(($builtinPolicySetDefinition.Id -replace '.*/')).html`" target=`"_blank`" rel=`"noopener`">$($builtinPolicySetDefinition.Properties.displayname)</a>"
-                $script:htCacheDefinitionsPolicySet.(($builtinPolicySetDefinition.Id).ToLower()).ALZ = $false
-                $script:htCacheDefinitionsPolicySet.(($builtinPolicySetDefinition.Id).ToLower()).ALZState = ''
-                $script:htCacheDefinitionsPolicySet.(($builtinPolicySetDefinition.Id).ToLower()).ALZLatestVer = ''
-                $script:htCacheDefinitionsPolicySet.(($builtinPolicySetDefinition.Id).ToLower()).ALZIdentificationLevel = ''
-                $script:htCacheDefinitionsPolicySet.(($builtinPolicySetDefinition.Id).ToLower()).ALZPolicySetName = ''
-                $arrayPolicySetPolicyIdsToLower = @()
+                $script:htCacheDefinitionsPolicySet.(($builtinPolicySetDefinition.Id).ToLower()) = @{
+                    Id                     = ($builtinPolicySetDefinition.Id).ToLower()
+                    ScopeMGLevel           = ''
+                    Scope                  = 'n/a'
+                    ScopeMgSub             = 'n/a'
+                    ScopeId                = 'n/a'
+                    DisplayName            = $builtinPolicySetDefinition.Properties.displayname
+                    Name                   = $builtinPolicySetDefinition.Name
+                    Description            = $builtinPolicySetDefinition.Properties.description
+                    Type                   = $builtinPolicySetDefinition.Properties.policyType
+                    Category               = $builtinPolicySetDefinition.Properties.metadata.category
+                    Version                = $builtinPolicySetDefinition.Properties.metadata.version
+                    PolicyDefinitionId     = ($builtinPolicySetDefinition.Id).ToLower()
+                    LinkToAzAdvertizer     = "<a class=`"externallink`" href=`"https://www.azadvertizer.net/azpolicyinitiativesadvertizer/$(($builtinPolicySetDefinition.Id -replace '.*/')).html`" target=`"_blank`" rel=`"noopener`">$($builtinPolicySetDefinition.Properties.displayname)</a>"
+                    ALZ                    = $false
+                    ALZState               = ''
+                    ALZLatestVer           = ''
+                    ALZIdentificationLevel = ''
+                    ALZPolicySetName       = ''
+                }
                 $htPolicySetPolicyRefIds = @{}
                 $arrayPolicySetPolicyIdsToLower = foreach ($policySetPolicy in $builtinPolicySetDefinition.properties.policydefinitions) {
                     ($policySetPolicy.policyDefinitionId).ToLower()
@@ -235,13 +219,23 @@ function cacheBuiltIn {
         }
 
         if ($builtInCapability -eq 'RoleDefinitions') {
-            $currentTask = 'Caching built-in Role definitions'
-            #Write-Host " $currentTask"
-            $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/subscriptions/$($azAPICallConf['checkContext'].Subscription.Id)/providers/Microsoft.Authorization/roleDefinitions?api-version=2018-07-01&`$filter=type eq 'BuiltInRole'"
+
+            #region subscriptionScope
+            if ($ignoreARMLocation) {
+                $currentTask = 'Caching built-in Role definitions (subscriptionScope)'
+                Write-Host " $currentTask"
+                $uri = "$($azAPICallConf['azAPIEndpointUrls'].'ARM')/subscriptions/$($azAPICallConf['checkContext'].Subscription.Id)/providers/Microsoft.Authorization/roleDefinitions?api-version=2023-07-01-preview&`$filter=type eq 'BuiltInRole'"
+            }
+            else {
+                $currentTask = "Caching built-in Role definitions (Location: '$($ARMLocation)') (subscriptionScope)"
+                Write-Host " $currentTask"
+                $uri = "$($azAPICallConf['azAPIEndpointUrls']."ARM$($ARMLocation)")/subscriptions/$($azAPICallConf['checkContext'].Subscription.Id)/providers/Microsoft.Authorization/roleDefinitions?api-version=2023-07-01-preview&`$filter=type eq 'BuiltInRole'"
+            }
+
             $method = 'GET'
             $requestRoleDefinitionAPI = AzAPICall -AzAPICallConfiguration $azAPICallConf -uri $uri -method $method -currentTask $currentTask
 
-            Write-Host " $($requestRoleDefinitionAPI.Count) built-in Role definitions returned"
+            Write-Host " $($requestRoleDefinitionAPI.Count) built-in Role definitions returned (subscriptionScope)"
             foreach ($roleDefinition in $requestRoleDefinitionAPI) {
                 if (
                     (
@@ -266,19 +260,82 @@ function cacheBuiltIn {
                     $roleCapable4RoleAssignmentsWrite = $false
                 }
 
-                    ($script:htCacheDefinitionsRole).($roleDefinition.name) = @{}
-                    ($script:htCacheDefinitionsRole).($roleDefinition.name).Id = ($roleDefinition.name)
-                    ($script:htCacheDefinitionsRole).($roleDefinition.name).Name = ($roleDefinition.properties.roleName)
-                    ($script:htCacheDefinitionsRole).($roleDefinition.name).IsCustom = $false
-                    ($script:htCacheDefinitionsRole).($roleDefinition.name).AssignableScopes = ($roleDefinition.properties.assignableScopes)
-                    ($script:htCacheDefinitionsRole).($roleDefinition.name).Actions = ($roleDefinition.properties.permissions.actions)
-                    ($script:htCacheDefinitionsRole).($roleDefinition.name).NotActions = ($roleDefinition.properties.permissions.notActions)
-                    ($script:htCacheDefinitionsRole).($roleDefinition.name).DataActions = ($roleDefinition.properties.permissions.dataActions)
-                    ($script:htCacheDefinitionsRole).($roleDefinition.name).NotDataActions = ($roleDefinition.properties.permissions.notDataActions)
-                    ($script:htCacheDefinitionsRole).($roleDefinition.name).Json = ($roleDefinition.properties)
-                    ($script:htCacheDefinitionsRole).($roleDefinition.name).LinkToAzAdvertizer = "<a class=`"externallink`" href=`"https://www.azadvertizer.net/azrolesadvertizer/$($roleDefinition.name).html`" target=`"_blank`" rel=`"noopener`">$($roleDefinition.properties.roleName)</a>"
-                    ($script:htCacheDefinitionsRole).($roleDefinition.name).RoleCanDoRoleAssignments = $roleCapable4RoleAssignmentsWrite
+                ($script:htCacheDefinitionsRole).($roleDefinition.name) = @{
+                    Id                       = ($roleDefinition.name)
+                    Name                     = ($roleDefinition.properties.roleName)
+                    IsCustom                 = $false
+                    AssignableScopes         = ($roleDefinition.properties.assignableScopes)
+                    Actions                  = ($roleDefinition.properties.permissions.actions)
+                    NotActions               = ($roleDefinition.properties.permissions.notActions)
+                    DataActions              = ($roleDefinition.properties.permissions.dataActions)
+                    NotDataActions           = ($roleDefinition.properties.permissions.notDataActions)
+                    Json                     = $roleDefinition
+                    LinkToAzAdvertizer       = "<a class=`"externallink`" href=`"https://www.azadvertizer.net/azrolesadvertizer/$($roleDefinition.name).html`" target=`"_blank`" rel=`"noopener`">$($roleDefinition.properties.roleName)</a>"
+                    RoleCanDoRoleAssignments = $roleCapable4RoleAssignmentsWrite
+                }
+
             }
+            #endregion subscriptionScope
+
+            #region tenantScope
+            if ($ignoreARMLocation) {
+                $currentTask = 'Caching built-in Role definitions (tenantScope)'
+                Write-Host " $currentTask"
+                $uri = "$($azAPICallConf['azAPIEndpointUrls'].'ARM')/providers/Microsoft.Authorization/roleDefinitions?api-version=2023-07-01-preview&`$filter=type eq 'BuiltInRole'"
+            }
+            else {
+                $currentTask = "Caching built-in Role definitions (Location: '$($ARMLocation)') (tenantScope)"
+                Write-Host " $currentTask"
+                $uri = "$($azAPICallConf['azAPIEndpointUrls']."ARM$($ARMLocation)")/providers/Microsoft.Authorization/roleDefinitions?api-version=2023-07-01-preview&`$filter=type eq 'BuiltInRole'"
+            }
+
+            $method = 'GET'
+            $requestRoleDefinitionTenantScopeAPI = AzAPICall -AzAPICallConfiguration $azAPICallConf -uri $uri -method $method -currentTask $currentTask
+
+            Write-Host " $($requestRoleDefinitionTenantScopeAPI.Count) built-in Role definitions returned (tenantScope)"
+            foreach ($roleDefinition in $requestRoleDefinitionTenantScopeAPI) {
+                if (-not $htCacheDefinitionsRole.($roleDefinition.name)) {
+                    Write-Host "tenantScope role: '$($roleDefinition.properties.roleName)' - $($roleDefinition.name)"
+                    if (
+                        (
+                            $roleDefinition.properties.permissions.actions -contains 'Microsoft.Authorization/roleassignments/write' -or
+                            $roleDefinition.properties.permissions.actions -contains 'Microsoft.Authorization/roleassignments/*' -or
+                            $roleDefinition.properties.permissions.actions -contains 'Microsoft.Authorization/*/write' -or
+                            $roleDefinition.properties.permissions.actions -contains 'Microsoft.Authorization/*' -or
+                            $roleDefinition.properties.permissions.actions -contains '*/write' -or
+                            $roleDefinition.properties.permissions.actions -contains '*'
+                        ) -and (
+                            $roleDefinition.properties.permissions.notActions -notcontains 'Microsoft.Authorization/roleassignments/write' -and
+                            $roleDefinition.properties.permissions.notActions -notcontains 'Microsoft.Authorization/roleassignments/*' -and
+                            $roleDefinition.properties.permissions.notActions -notcontains 'Microsoft.Authorization/*/write' -and
+                            $roleDefinition.properties.permissions.notActions -notcontains 'Microsoft.Authorization/*' -and
+                            $roleDefinition.properties.permissions.notActions -notcontains '*/write' -and
+                            $roleDefinition.properties.permissions.notActions -notcontains '*'
+                        )
+                    ) {
+                        $roleCapable4RoleAssignmentsWrite = $true
+                    }
+                    else {
+                        $roleCapable4RoleAssignmentsWrite = $false
+                    }
+
+                    ($script:htCacheDefinitionsRole).($roleDefinition.name) = @{
+                        Id                       = ($roleDefinition.name)
+                        Name                     = ($roleDefinition.properties.roleName)
+                        IsCustom                 = $false
+                        AssignableScopes         = ($roleDefinition.properties.assignableScopes)
+                        Actions                  = ($roleDefinition.properties.permissions.actions)
+                        NotActions               = ($roleDefinition.properties.permissions.notActions)
+                        DataActions              = ($roleDefinition.properties.permissions.dataActions)
+                        NotDataActions           = ($roleDefinition.properties.permissions.notDataActions)
+                        Json                     = $roleDefinition
+                        LinkToAzAdvertizer       = "<a class=`"externallink`" href=`"https://www.azadvertizer.net/azrolesadvertizer/$($roleDefinition.name).html`" target=`"_blank`" rel=`"noopener`">$($roleDefinition.properties.roleName)</a>"
+                        RoleCanDoRoleAssignments = $roleCapable4RoleAssignmentsWrite
+                    }
+                }
+
+            }
+            #endregion tenantScope
         }
     }
 

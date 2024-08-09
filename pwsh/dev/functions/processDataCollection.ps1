@@ -15,13 +15,13 @@ function processDataCollection {
     $btchCnt = 0
     foreach ($btch in $mgBatch) {
         $btchCnt++
-        $listOfMGs = @()
+        $listOfMGs = [System.Collections.ArrayList]@()
         foreach ($btchMg in $btch.Group | Sort-Object -Property name) {
             if ($btchMg.name -eq $btchMg.Properties.displayName) {
-                $listOfMGs += $btchMg.name
+                $null = $listOfMGs.Add($btchMg.name)
             }
             else {
-                $listOfMGs += "$($btchMg.name) ($($btchMg.Properties.displayName))"
+                $null = $listOfMGs.Add("$($btchMg.name) ($($btchMg.Properties.displayName))")
             }
         }
         Write-Host "   Batch#$($btchCnt) - $($listOfMGs.Count) Management Groups: $($listOfMGs -join ', ')"
@@ -32,8 +32,13 @@ function processDataCollection {
 
         showMemoryUsage
 
-        $batchLevel.Group | ForEach-Object -Parallel {
-            $mgdetail = $_
+        $batchSize = [math]::ceiling($batchLevel.Group.Count / $ThrottleLimit)
+        Write-Host "Optimal batch size: $($batchSize)"
+        $counterBatch = [PSCustomObject] @{ Value = 0 }
+        $batchLevelGroupBatch = ($batchLevel.Group) | Group-Object -Property { [math]::Floor($counterBatch.Value++ / $batchSize) }
+        Write-Host "Processing data in $($batchLevelGroupBatch.Count) batches"
+
+        $batchLevelGroupBatch | ForEach-Object -Parallel {
             #region UsingVARs
             #Parameters MG&Sub related
             $CsvDelimiter = $using:CsvDelimiter
@@ -53,7 +58,6 @@ function processDataCollection {
             $htCacheDefinitionsPolicySet = $using:htCacheDefinitionsPolicySet
             $htCacheDefinitionsRole = $using:htCacheDefinitionsRole
             $htCacheDefinitionsBlueprint = $using:htCacheDefinitionsBlueprint
-            $htRoleDefinitionIdsUsedInPolicy = $using:htRoleDefinitionIdsUsedInPolicy
             $htCachePolicyComplianceMG = $using:htCachePolicyComplianceMG
             $htCachePolicyComplianceResponseTooLargeMG = $using:htCachePolicyComplianceResponseTooLargeMG
             $htCacheAssignmentsRole = $using:htCacheAssignmentsRole
@@ -108,103 +112,118 @@ function processDataCollection {
             #endregion usingVARS
             $builtInPolicyDefinitionsCount = $using:builtInPolicyDefinitionsCount
 
-            $addRowToTableDone = $false
+            foreach ($mgdetail in $_.Group) {
 
-            $MgDetailThis = $htManagementGroupsMgPath.($mgdetail.Name)
-            $MgParentId = $MgDetailThis.Parent
-            $hierarchyLevel = $MgDetailThis.ParentNameChainCount
+                $addRowToTableDone = $false
 
-            if ($MgParentId -eq '__TenantRoot__') {
-                $MgParentId = 'TenantRoot'
-                $MgParentName = $MgParentId
-            }
-            else {
-                $MgParentName = $htManagementGroupsMgPath.($MgParentId).DisplayName
-            }
+                $MgDetailThis = $htManagementGroupsMgPath.($mgdetail.Name)
+                $MgParentId = $MgDetailThis.Parent
+                $hierarchyLevel = $MgDetailThis.ParentNameChainCount
 
-            $rndom = Get-Random -Minimum 10 -Maximum 750
-            Start-Sleep -Millisecond $rndom
-            $startMgLoopThis = Get-Date
+                if ($MgParentId -eq '__TenantRoot__') {
+                    $MgParentId = 'TenantRoot'
+                    $MgParentName = $MgParentId
+                }
+                else {
+                    $MgParentName = $htManagementGroupsMgPath.($MgParentId).DisplayName
+                }
 
-            if ($azAPICallConf['htParameters'].HierarchyMapOnly -eq $false) {
+                $rndom = Get-Random -Minimum 10 -Maximum 750
+                Start-Sleep -Millisecond $rndom
+                $startMgLoopThis = Get-Date
 
-                #namingValidation
-                if (-not [string]::IsNullOrEmpty($mgdetail.properties.displayName)) {
-                    $namingValidationResult = NamingValidation -toCheck $mgdetail.properties.displayName
-                    if ($namingValidationResult.Count -gt 0) {
-                        $script:htNamingValidation.ManagementGroup.($mgdetail.Name) = @{}
-                        $script:htNamingValidation.ManagementGroup.($mgdetail.Name).nameInvalidChars = ($namingValidationResult -join '')
-                        $script:htNamingValidation.ManagementGroup.($mgdetail.Name).name = $mgdetail.properties.displayName
+                if ($azAPICallConf['htParameters'].HierarchyMapOnly -eq $false) {
+
+                    #namingValidation
+                    if (-not [string]::IsNullOrEmpty($mgdetail.properties.displayName)) {
+                        $namingValidationResult = NamingValidation -toCheck $mgdetail.properties.displayName
+                        if ($namingValidationResult.Count -gt 0) {
+                            $script:htNamingValidation.ManagementGroup.($mgdetail.Name) = @{
+                                nameInvalidChars = ($namingValidationResult -join '')
+                                name             = $mgdetail.properties.displayName
+                            }
+
+                        }
+                    }
+
+                    $targetMgOrSub = 'MG'
+                    $baseParameters = @{
+                        scopeId          = $mgdetail.Name
+                        scopeDisplayName = $mgdetail.properties.displayName
+                    }
+
+                    #ManagementGroupASCSecureScore
+                    $mgAscSecureScoreResult = DataCollectionMGSecureScore -Id $mgdetail.Name
+
+                    $addRowToTableParameters = @{
+                        hierarchyLevel         = $hierarchyLevel
+                        mgParentId             = $mgParentId
+                        mgParentName           = $mgParentName
+                        mgAscSecureScoreResult = $mgAscSecureScoreResult
+                    }
+
+                    #mg diag
+                    DataCollectionDiagnosticsMG @baseParameters
+
+                    if ($azAPICallConf['htParameters'].NoPolicyComplianceStates -eq $false) {
+                        #MGPolicyCompliance
+                        DataCollectionPolicyComplianceStates @baseParameters -TargetMgOrSub $targetMgOrSub
+                    }
+
+                    #MGBlueprintDefinitions
+                    $functionReturn = DataCollectionBluePrintDefinitionsMG @baseParameters @addRowToTableParameters
+                    if ($functionReturn.'addRowToTableDone') {
+                        $addRowToTableDone = $true
+                    }
+
+                    #MGPolicyExemptions
+                    DataCollectionPolicyExemptions @baseParameters -TargetMgOrSub $targetMgOrSub
+
+                    #MGPolicyDefinitions
+                    $functionReturn = DataCollectionPolicyDefinitions @baseParameters -TargetMgOrSub $targetMgOrSub
+                    $policyDefinitionsScopedCount = $functionReturn.'PolicyDefinitionsScopedCount'
+
+                    #MGPolicySetDefinitions
+                    $functionReturn = DataCollectionPolicySetDefinitions @baseParameters -TargetMgOrSub $targetMgOrSub
+                    $policySetDefinitionsScopedCount = $functionReturn.'PolicySetDefinitionsScopedCount'
+
+                    if (-not $htMgAtScopePoliciesScoped.($mgdetail.Name)) {
+                        $script:htMgAtScopePoliciesScoped.($mgdetail.Name) = @{
+                            ScopedCount = $policyDefinitionsScopedCount + $policySetDefinitionsScopedCount
+                        }
+                    }
+
+                    $scopedPolicyCounts = @{
+                        policyDefinitionsScopedCount    = $policyDefinitionsScopedCount
+                        policySetDefinitionsScopedCount = $policySetDefinitionsScopedCount
+                    }
+
+                    #MgPolicyAssignments
+                    $functionReturn = DataCollectionPolicyAssignmentsMG @baseParameters @addRowToTableParameters @scopedPolicyCounts
+                    if ($functionReturn.'addRowToTableDone') {
+                        $addRowToTableDone = $true
+                    }
+
+                    #MGRoleDefinitions
+                    DataCollectionRoleDefinitions @baseParameters -TargetMgOrSub $targetMgOrSub
+
+                    #MGRoleAssignments
+                    $functionReturn = DataCollectionRoleAssignmentsMG @baseParameters @addRowToTableParameters
+                    if ($functionReturn.'addRowToTableDone') {
+                        $addRowToTableDone = $true
+                    }
+
+                    if ($addRowToTableDone -ne $true) {
+                        addRowToTable `
+                            -level $hierarchyLevel `
+                            -mgName $mgdetail.properties.displayName `
+                            -mgId $mgdetail.Name `
+                            -mgParentId $mgParentId `
+                            -mgParentName $mgParentName `
+                            -mgASCSecureScore $mgAscSecureScoreResult
                     }
                 }
-
-                $targetMgOrSub = 'MG'
-                $baseParameters = @{
-                    scopeId          = $mgdetail.Name
-                    scopeDisplayName = $mgdetail.properties.displayName
-                }
-
-                #ManagementGroupASCSecureScore
-                $mgAscSecureScoreResult = DataCollectionMGSecureScore -Id $mgdetail.Name
-
-                $addRowToTableParameters = @{
-                    hierarchyLevel         = $hierarchyLevel
-                    mgParentId             = $mgParentId
-                    mgParentName           = $mgParentName
-                    mgAscSecureScoreResult = $mgAscSecureScoreResult
-                }
-
-                #mg diag
-                DataCollectionDiagnosticsMG @baseParameters
-
-                if ($azAPICallConf['htParameters'].NoPolicyComplianceStates -eq $false) {
-                    #MGPolicyCompliance
-                    DataCollectionPolicyComplianceStates @baseParameters -TargetMgOrSub $targetMgOrSub
-                }
-
-                #MGBlueprintDefinitions
-                $functionReturn = DataCollectionBluePrintDefinitionsMG @baseParameters @addRowToTableParameters
-                if ($functionReturn.'addRowToTableDone') {
-                    $addRowToTableDone = $true
-                }
-
-                #MGPolicyExemptions
-                DataCollectionPolicyExemptions @baseParameters -TargetMgOrSub $targetMgOrSub
-
-                #MGPolicyDefinitions
-                $functionReturn = DataCollectionPolicyDefinitions @baseParameters -TargetMgOrSub $targetMgOrSub
-                $policyDefinitionsScopedCount = $functionReturn.'PolicyDefinitionsScopedCount'
-
-                #MGPolicySetDefinitions
-                $functionReturn = DataCollectionPolicySetDefinitions @baseParameters -TargetMgOrSub $targetMgOrSub
-                $policySetDefinitionsScopedCount = $functionReturn.'PolicySetDefinitionsScopedCount'
-
-                if (-not $htMgAtScopePoliciesScoped.($mgdetail.Name)) {
-                    $script:htMgAtScopePoliciesScoped.($mgdetail.Name) = @{}
-                    $script:htMgAtScopePoliciesScoped.($mgdetail.Name).ScopedCount = $policyDefinitionsScopedCount + $policySetDefinitionsScopedCount
-                }
-
-                $scopedPolicyCounts = @{
-                    policyDefinitionsScopedCount    = $policyDefinitionsScopedCount
-                    policySetDefinitionsScopedCount = $policySetDefinitionsScopedCount
-                }
-
-                #MgPolicyAssignments
-                $functionReturn = DataCollectionPolicyAssignmentsMG @baseParameters @addRowToTableParameters @scopedPolicyCounts
-                if ($functionReturn.'addRowToTableDone') {
-                    $addRowToTableDone = $true
-                }
-
-                #MGRoleDefinitions
-                DataCollectionRoleDefinitions @baseParameters -TargetMgOrSub $targetMgOrSub
-
-                #MGRoleAssignments
-                $functionReturn = DataCollectionRoleAssignmentsMG @baseParameters @addRowToTableParameters
-                if ($functionReturn.'addRowToTableDone') {
-                    $addRowToTableDone = $true
-                }
-
-                if ($addRowToTableDone -ne $true) {
+                else {
                     addRowToTable `
                         -level $hierarchyLevel `
                         -mgName $mgdetail.properties.displayName `
@@ -213,29 +232,19 @@ function processDataCollection {
                         -mgParentName $mgParentName `
                         -mgASCSecureScore $mgAscSecureScoreResult
                 }
+
+
+                $endMgLoopThis = Get-Date
+                $null = $script:customDataCollectionDuration.Add([PSCustomObject]@{
+                        Type        = 'Mg'
+                        Id          = $mgdetail.Name
+                        DurationSec = (New-TimeSpan -Start $startMgLoopThis -End $endMgLoopThis).TotalSeconds
+                    })
+
+                $null = $script:arrayDataCollectionProgressMg.Add($mgdetail.Name)
+                $progressCount = ($arrayDataCollectionProgressMg).Count
+                Write-Host "   $($progressCount)/$($allManagementGroupsFromEntitiesChildOfRequestedMgCount) Management Groups processed"
             }
-            else {
-                addRowToTable `
-                    -level $hierarchyLevel `
-                    -mgName $mgdetail.properties.displayName `
-                    -mgId $mgdetail.Name `
-                    -mgParentId $mgParentId `
-                    -mgParentName $mgParentName `
-                    -mgASCSecureScore $mgAscSecureScoreResult
-            }
-
-
-            $endMgLoopThis = Get-Date
-            $null = $script:customDataCollectionDuration.Add([PSCustomObject]@{
-                    Type        = 'Mg'
-                    Id          = $mgdetail.Name
-                    DurationSec = (New-TimeSpan -Start $startMgLoopThis -End $endMgLoopThis).TotalSeconds
-                })
-
-            $null = $script:arrayDataCollectionProgressMg.Add($mgdetail.Name)
-            $progressCount = ($arrayDataCollectionProgressMg).Count
-            Write-Host "   $($progressCount)/$($allManagementGroupsFromEntitiesChildOfRequestedMgCount) Management Groups processed"
-
         } -ThrottleLimit $ThrottleLimit
     }
 
@@ -270,133 +279,127 @@ function processDataCollection {
     $startSubLoop = Get-Date
     if ($subsToProcessInCustomDataCollectionCount -gt 0) {
 
+        $batchSize = [math]::ceiling($subsToProcessInCustomDataCollectionCount / $ThrottleLimit)
+        Write-Host "Optimal batch size: $($batchSize)"
         $counterBatch = [PSCustomObject] @{ Value = 0 }
-        $batchSize = 100
-        if ($subsToProcessInCustomDataCollectionCount -gt 500) {
-            $batchSize = 200
-        }
-        Write-Host " Subscriptions Batch size: $batchSize"
+        $subsToProcessInCustomDataCollectionBatch = ($subsToProcessInCustomDataCollection) | Group-Object -Property { [math]::Floor($counterBatch.Value++ / $batchSize) }
+        Write-Host "Processing data in $($subsToProcessInCustomDataCollectionBatch.Count) batches"
 
-        $subscriptionsBatch = $subsToProcessInCustomDataCollection | Group-Object -Property { [math]::Floor($counterBatch.Value++ / $batchSize) }
-        $batchCnt = 0
-        foreach ($batch in $subscriptionsBatch) {
-            $startBatch = Get-Date
-            $batchCnt++
-            Write-Host " processing Batch #$batchCnt/$(($subscriptionsBatch | Measure-Object).Count) ($(($batch.Group | Measure-Object).Count) Subscriptions)"
-            showMemoryUsage
+        $startBatch = Get-Date
+        showMemoryUsage
 
-            $batch.Group | ForEach-Object -Parallel {
-                $startSubLoopThis = Get-Date
-                $childMgSubDetail = $_
-                #region UsingVARs
-                #Parameters MG&Sub related
-                $CsvDelimiter = $using:CsvDelimiter
-                $CsvDelimiterOpposite = $using:CsvDelimiterOpposite
-                #Parameters Sub related
-                #fromOtherFunctions
-                $azAPICallConf = $using:azAPICallConf
-                $scriptPath = $using:ScriptPath
-                #Array&HTs
-                $newTable = $using:newTable
-                $storageAccounts = $using:storageAccounts
-                $resourcesAll = $using:resourcesAll
-                $resourcesIdsAll = $using:resourcesIdsAll
-                $resourceGroupsAll = $using:resourceGroupsAll
-                $customDataCollectionDuration = $using:customDataCollectionDuration
-                $htSubscriptionsMgPath = $using:htSubscriptionsMgPath
-                $htManagementGroupsMgPath = $using:htManagementGroupsMgPath
-                $htResourceProvidersAll = $using:htResourceProvidersAll
-                $arrayFeaturesAll = $using:arrayFeaturesAll
-                $htSubscriptionTagList = $using:htSubscriptionTagList
-                $htResourceTypesUniqueResource = $using:htResourceTypesUniqueResource
-                $htAllTagList = $using:htAllTagList
-                $htSubscriptionTags = $using:htSubscriptionTags
-                $htCacheDefinitionsPolicy = $using:htCacheDefinitionsPolicy
-                $htCacheDefinitionsPolicySet = $using:htCacheDefinitionsPolicySet
-                $htCacheDefinitionsRole = $using:htCacheDefinitionsRole
-                $htCacheDefinitionsBlueprint = $using:htCacheDefinitionsBlueprint
-                $htRoleDefinitionIdsUsedInPolicy = $using:htRoleDefinitionIdsUsedInPolicy
-                $htCachePolicyComplianceSUB = $using:htCachePolicyComplianceSUB
-                $htCachePolicyComplianceResponseTooLargeSUB = $using:htCachePolicyComplianceResponseTooLargeSUB
-                $htCacheAssignmentsRole = $using:htCacheAssignmentsRole
-                $htCacheAssignmentsRBACOnResourceGroupsAndResources = $using:htCacheAssignmentsRBACOnResourceGroupsAndResources
-                $htCacheAssignmentsBlueprint = $using:htCacheAssignmentsBlueprint
-                $htCacheAssignmentsPolicyOnResourceGroupsAndResources = $using:htCacheAssignmentsPolicyOnResourceGroupsAndResources
-                $htCacheAssignmentsPolicy = $using:htCacheAssignmentsPolicy
-                $htPolicyAssignmentExemptions = $using:htPolicyAssignmentExemptions
-                $htResourceLocks = $using:htResourceLocks
-                $LimitPOLICYPolicyDefinitionsScopedSubscription = $using:LimitPOLICYPolicyDefinitionsScopedSubscription
-                $LimitPOLICYPolicySetDefinitionsScopedSubscription = $using:LimitPOLICYPolicySetDefinitionsScopedSubscription
-                $LimitPOLICYPolicyAssignmentsSubscription = $using:LimitPOLICYPolicyAssignmentsSubscription
-                $LimitPOLICYPolicySetAssignmentsSubscription = $using:LimitPOLICYPolicySetAssignmentsSubscription
-                $childrenSubscriptionsCount = $using:childrenSubscriptionsCount
-                $subsToProcessInCustomDataCollectionCount = $using:subsToProcessInCustomDataCollectionCount
-                $arrayDataCollectionProgressSub = $using:arrayDataCollectionProgressSub
-                $arraySubResourcesAddArrayDuration = $using:arraySubResourcesAddArrayDuration
-                $htAllSubscriptionsFromAPI = $using:htAllSubscriptionsFromAPI
-                $arrayEntitiesFromAPI = $using:arrayEntitiesFromAPI
-                $arrayDiagnosticSettingsMgSub = $using:arrayDiagnosticSettingsMgSub
-                $htMgASCSecureScore = $using:htMgASCSecureScore
-                $htRoleAssignmentsFromAPIInheritancePrevention = $using:htRoleAssignmentsFromAPIInheritancePrevention
-                $htNamingValidation = $using:htNamingValidation
-                $htPrincipals = $using:htPrincipals
-                $htServicePrincipals = $using:htServicePrincipals
-                $htUserTypesGuest = $using:htUserTypesGuest
-                $arrayDefenderPlans = $using:arrayDefenderPlans
-                $arrayDefenderPlansSubscriptionsSkipped = $using:arrayDefenderPlansSubscriptionsSkipped
-                $arrayUserAssignedIdentities4Resources = $using:arrayUserAssignedIdentities4Resources
-                $htSubscriptionsRoleAssignmentLimit = $using:htSubscriptionsRoleAssignmentLimit
-                $arrayPsRule = $using:arrayPsRule
-                $arrayPSRuleTracking = $using:arrayPSRuleTracking
-                $htClassicAdministrators = $using:htClassicAdministrators
-                $htRoleAssignmentsPIM = $using:htRoleAssignmentsPIM
-                $alzPolicies = $using:alzPolicies
-                $alzPolicySets = $using:alzPolicySets
-                $alzPolicyHashes = $using:alzPolicyHashes
-                $alzPolicySetHashes = $using:alzPolicySetHashes
-                $htDoARMRoleAssignmentScheduleInstances = $using:htDoARMRoleAssignmentScheduleInstances
-                $htDefenderEmailContacts = $using:htDefenderEmailContacts
-                $arrayVNets = $using:arrayVNets
-                $arrayPrivateEndPoints = $using:arrayPrivateEndPoints
-                $htResourceProvidersRef = $using:htResourceProvidersRef
-                $arrayPrivateEndPointsFromResourceProperties = $using:arrayPrivateEndPointsFromResourceProperties
-                $htResourcePropertiesConvertfromJSONFailed = $using:htResourcePropertiesConvertfromJSONFailed
-                $htAvailablePrivateEndpointTypes = $using:htAvailablePrivateEndpointTypes
-                $arrayAdvisorScores = $using:arrayAdvisorScores
-                $ValidPolicyEffects = $using:ValidPolicyEffects
-                #$htResourcesWithProperties = $using:htResourcesWithProperties
-                #other
-                $function:addRowToTable = $using:funcAddRowToTable
-                $function:namingValidation = $using:funcNamingValidation
-                $function:resolveObjectIds = $using:funcResolveObjectIds
-                $function:testGuid = $using:funcTestGuid
-                $function:dataCollectionMGSecureScore = $using:funcDataCollectionMGSecureScore
-                $function:dataCollectionDefenderPlans = $using:funcDataCollectionDefenderPlans
-                $function:dataCollectionDiagnosticsSub = $using:funcDataCollectionDiagnosticsSub
-                $function:dataCollectionResources = $using:funcDataCollectionResources
-                $function:dataCollectionStorageAccounts = $using:funcDataCollectionStorageAccounts
-                $function:dataCollectionResourceGroups = $using:funcDataCollectionResourceGroups
-                $function:dataCollectionResourceProviders = $using:funcDataCollectionResourceProviders
-                $function:dataCollectionFeatures = $using:funcDataCollectionFeatures
-                $function:dataCollectionResourceLocks = $using:funcDataCollectionResourceLocks
-                $function:dataCollectionTags = $using:funcDataCollectionTags
-                $function:dataCollectionPolicyComplianceStates = $using:funcDataCollectionPolicyComplianceStates
-                $function:dataCollectionASCSecureScoreSub = $using:funcDataCollectionASCSecureScoreSub
-                $function:dataCollectionBluePrintDefinitionsSub = $using:funcDataCollectionBluePrintDefinitionsSub
-                $function:dataCollectionBluePrintAssignmentsSub = $using:funcDataCollectionBluePrintAssignmentsSub
-                $function:dataCollectionPolicyExemptions = $using:funcDataCollectionPolicyExemptions
-                $function:dataCollectionPolicyDefinitions = $using:funcDataCollectionPolicyDefinitions
-                $function:dataCollectionPolicySetDefinitions = $using:funcDataCollectionPolicySetDefinitions
-                $function:dataCollectionPolicyAssignmentsSub = $using:funcDataCollectionPolicyAssignmentsSub
-                $function:dataCollectionRoleDefinitions = $using:funcDataCollectionRoleDefinitions
-                $function:dataCollectionRoleAssignmentsSub = $using:funcDataCollectionRoleAssignmentsSub
-                $function:dataCollectionClassicAdministratorsSub = $using:funcDataCollectionClassicAdministratorsSub
-                $function:dataCollectionDefenderEmailContacts = $using:funcDataCollectionDefenderEmailContacts
-                $function:dataCollectionVNets = $using:funcDataCollectionVNets
-                $function:dataCollectionPrivateEndpoints = $using:funcDataCollectionPrivateEndpoints
-                $function:dataCollectionAdvisorScores = $using:funcDataCollectionAdvisorScores
-                $function:detectPolicyEffect = $using:funcDetectPolicyEffect
-                #endregion UsingVARs
+        $subsToProcessInCustomDataCollectionBatch | ForEach-Object -Parallel {
+            $startSubLoopThis = Get-Date
+            #region UsingVARs
+            #Parameters MG&Sub related
+            $CsvDelimiter = $using:CsvDelimiter
+            $CsvDelimiterOpposite = $using:CsvDelimiterOpposite
+            #Parameters Sub related
+            #fromOtherFunctions
+            $azAPICallConf = $using:azAPICallConf
+            $scriptPath = $using:ScriptPath
+            #Array&HTs
+            $newTable = $using:newTable
+            $storageAccounts = $using:storageAccounts
+            $resourcesAll = $using:resourcesAll
+            $resourcesIdsAll = $using:resourcesIdsAll
+            $resourceGroupsAll = $using:resourceGroupsAll
+            $customDataCollectionDuration = $using:customDataCollectionDuration
+            $htSubscriptionsMgPath = $using:htSubscriptionsMgPath
+            $htManagementGroupsMgPath = $using:htManagementGroupsMgPath
+            $htResourceProvidersAll = $using:htResourceProvidersAll
+            $arrayFeaturesAll = $using:arrayFeaturesAll
+            $htSubscriptionTagList = $using:htSubscriptionTagList
+            $htResourceTypesUniqueResource = $using:htResourceTypesUniqueResource
+            $htAllTagList = $using:htAllTagList
+            $htSubscriptionTags = $using:htSubscriptionTags
+            $htCacheDefinitionsPolicy = $using:htCacheDefinitionsPolicy
+            $htCacheDefinitionsPolicySet = $using:htCacheDefinitionsPolicySet
+            $htCacheDefinitionsRole = $using:htCacheDefinitionsRole
+            $htCacheDefinitionsBlueprint = $using:htCacheDefinitionsBlueprint
+            $htCachePolicyComplianceSUB = $using:htCachePolicyComplianceSUB
+            $htCachePolicyComplianceResponseTooLargeSUB = $using:htCachePolicyComplianceResponseTooLargeSUB
+            $htCacheAssignmentsRole = $using:htCacheAssignmentsRole
+            $htCacheAssignmentsRBACOnResourceGroupsAndResources = $using:htCacheAssignmentsRBACOnResourceGroupsAndResources
+            $htCacheAssignmentsBlueprint = $using:htCacheAssignmentsBlueprint
+            $htCacheAssignmentsPolicyOnResourceGroupsAndResources = $using:htCacheAssignmentsPolicyOnResourceGroupsAndResources
+            $htCacheAssignmentsPolicy = $using:htCacheAssignmentsPolicy
+            $htPolicyAssignmentExemptions = $using:htPolicyAssignmentExemptions
+            $htResourceLocks = $using:htResourceLocks
+            $LimitPOLICYPolicyDefinitionsScopedSubscription = $using:LimitPOLICYPolicyDefinitionsScopedSubscription
+            $LimitPOLICYPolicySetDefinitionsScopedSubscription = $using:LimitPOLICYPolicySetDefinitionsScopedSubscription
+            $LimitPOLICYPolicyAssignmentsSubscription = $using:LimitPOLICYPolicyAssignmentsSubscription
+            $LimitPOLICYPolicySetAssignmentsSubscription = $using:LimitPOLICYPolicySetAssignmentsSubscription
+            $childrenSubscriptionsCount = $using:childrenSubscriptionsCount
+            $subsToProcessInCustomDataCollectionCount = $using:subsToProcessInCustomDataCollectionCount
+            $arrayDataCollectionProgressSub = $using:arrayDataCollectionProgressSub
+            $arraySubResourcesAddArrayDuration = $using:arraySubResourcesAddArrayDuration
+            $htAllSubscriptionsFromAPI = $using:htAllSubscriptionsFromAPI
+            $arrayEntitiesFromAPI = $using:arrayEntitiesFromAPI
+            $arrayDiagnosticSettingsMgSub = $using:arrayDiagnosticSettingsMgSub
+            $htMgASCSecureScore = $using:htMgASCSecureScore
+            $htRoleAssignmentsFromAPIInheritancePrevention = $using:htRoleAssignmentsFromAPIInheritancePrevention
+            $htNamingValidation = $using:htNamingValidation
+            $htPrincipals = $using:htPrincipals
+            $htServicePrincipals = $using:htServicePrincipals
+            $htUserTypesGuest = $using:htUserTypesGuest
+            $arrayDefenderPlans = $using:arrayDefenderPlans
+            $arrayDefenderPlansSubscriptionsSkipped = $using:arrayDefenderPlansSubscriptionsSkipped
+            $arrayUserAssignedIdentities4Resources = $using:arrayUserAssignedIdentities4Resources
+            $htSubscriptionsRoleAssignmentLimit = $using:htSubscriptionsRoleAssignmentLimit
+            $arrayPsRule = $using:arrayPsRule
+            $arrayPSRuleTracking = $using:arrayPSRuleTracking
+            $htClassicAdministrators = $using:htClassicAdministrators
+            $htRoleAssignmentsPIM = $using:htRoleAssignmentsPIM
+            $alzPolicies = $using:alzPolicies
+            $alzPolicySets = $using:alzPolicySets
+            $alzPolicyHashes = $using:alzPolicyHashes
+            $alzPolicySetHashes = $using:alzPolicySetHashes
+            $htDoARMRoleAssignmentScheduleInstances = $using:htDoARMRoleAssignmentScheduleInstances
+            $htDefenderEmailContacts = $using:htDefenderEmailContacts
+            $arrayVNets = $using:arrayVNets
+            $arrayPrivateEndPoints = $using:arrayPrivateEndPoints
+            $htResourceProvidersRef = $using:htResourceProvidersRef
+            $arrayPrivateEndPointsFromResourceProperties = $using:arrayPrivateEndPointsFromResourceProperties
+            $htResourcePropertiesConvertfromJSONFailed = $using:htResourcePropertiesConvertfromJSONFailed
+            $htAvailablePrivateEndpointTypes = $using:htAvailablePrivateEndpointTypes
+            $arrayAdvisorScores = $using:arrayAdvisorScores
+            $ValidPolicyEffects = $using:ValidPolicyEffects
+            #$htResourcesWithProperties = $using:htResourcesWithProperties
+            #other
+            $function:addRowToTable = $using:funcAddRowToTable
+            $function:namingValidation = $using:funcNamingValidation
+            $function:resolveObjectIds = $using:funcResolveObjectIds
+            $function:testGuid = $using:funcTestGuid
+            $function:dataCollectionMGSecureScore = $using:funcDataCollectionMGSecureScore
+            $function:dataCollectionDefenderPlans = $using:funcDataCollectionDefenderPlans
+            $function:dataCollectionDiagnosticsSub = $using:funcDataCollectionDiagnosticsSub
+            $function:dataCollectionResources = $using:funcDataCollectionResources
+            $function:dataCollectionStorageAccounts = $using:funcDataCollectionStorageAccounts
+            $function:dataCollectionResourceGroups = $using:funcDataCollectionResourceGroups
+            $function:dataCollectionResourceProviders = $using:funcDataCollectionResourceProviders
+            $function:dataCollectionFeatures = $using:funcDataCollectionFeatures
+            $function:dataCollectionResourceLocks = $using:funcDataCollectionResourceLocks
+            $function:dataCollectionTags = $using:funcDataCollectionTags
+            $function:dataCollectionPolicyComplianceStates = $using:funcDataCollectionPolicyComplianceStates
+            $function:dataCollectionASCSecureScoreSub = $using:funcDataCollectionASCSecureScoreSub
+            $function:dataCollectionBluePrintDefinitionsSub = $using:funcDataCollectionBluePrintDefinitionsSub
+            $function:dataCollectionBluePrintAssignmentsSub = $using:funcDataCollectionBluePrintAssignmentsSub
+            $function:dataCollectionPolicyExemptions = $using:funcDataCollectionPolicyExemptions
+            $function:dataCollectionPolicyDefinitions = $using:funcDataCollectionPolicyDefinitions
+            $function:dataCollectionPolicySetDefinitions = $using:funcDataCollectionPolicySetDefinitions
+            $function:dataCollectionPolicyAssignmentsSub = $using:funcDataCollectionPolicyAssignmentsSub
+            $function:dataCollectionRoleDefinitions = $using:funcDataCollectionRoleDefinitions
+            $function:dataCollectionRoleAssignmentsSub = $using:funcDataCollectionRoleAssignmentsSub
+            $function:dataCollectionClassicAdministratorsSub = $using:funcDataCollectionClassicAdministratorsSub
+            $function:dataCollectionDefenderEmailContacts = $using:funcDataCollectionDefenderEmailContacts
+            $function:dataCollectionVNets = $using:funcDataCollectionVNets
+            $function:dataCollectionPrivateEndpoints = $using:funcDataCollectionPrivateEndpoints
+            $function:dataCollectionAdvisorScores = $using:funcDataCollectionAdvisorScores
+            $function:detectPolicyEffect = $using:funcDetectPolicyEffect
+            #endregion UsingVARs
+
+            foreach ($childMgSubDetail in $_.Group) {
 
                 $addRowToTableDone = $false
 
@@ -418,9 +421,11 @@ function processDataCollection {
                     $namingValidationResult = NamingValidation -toCheck $childMgSubDisplayName
                     if ($namingValidationResult.Count -gt 0) {
 
-                        $script:htNamingValidation.Subscription.($childMgSubId) = @{}
-                        $script:htNamingValidation.Subscription.($childMgSubId).displayNameInvalidChars = ($namingValidationResult -join '')
-                        $script:htNamingValidation.Subscription.($childMgSubId).displayName = $childMgSubDisplayName
+                        $script:htNamingValidation.Subscription.($childMgSubId) = @{
+                            displayNameInvalidChars = ($namingValidationResult -join '')
+                            displayName             = $childMgSubDisplayName
+                        }
+
                     }
                 }
 
@@ -610,12 +615,11 @@ function processDataCollection {
                 $null = $script:arrayDataCollectionProgressSub.Add($childMgSubId)
                 $progressCount = ($arrayDataCollectionProgressSub).Count
                 Write-Host "  $($progressCount)/$($subsToProcessInCustomDataCollectionCount) Subscriptions processed"
+            }
+        } -ThrottleLimit $ThrottleLimit
 
-            } -ThrottleLimit $ThrottleLimit
-
-            $endBatch = Get-Date
-            Write-Host " Batch #$batchCnt processing duration: $((New-TimeSpan -Start $startBatch -End $endBatch).TotalMinutes) minutes ($((New-TimeSpan -Start $startBatch -End $endBatch).TotalSeconds) seconds)"
-        }
+        $endBatch = Get-Date
+        Write-Host " Batch #$batchCnt processing duration: $((New-TimeSpan -Start $startBatch -End $endBatch).TotalMinutes) minutes ($((New-TimeSpan -Start $startBatch -End $endBatch).TotalSeconds) seconds)"
 
         $endSubLoop = Get-Date
         Write-Host " CustomDataCollection Subscriptions processing duration: $((New-TimeSpan -Start $startSubLoop -End $endSubLoop).TotalMinutes) minutes ($((New-TimeSpan -Start $startSubLoop -End $endSubLoop).TotalSeconds) seconds)"
@@ -625,7 +629,6 @@ function processDataCollection {
                 Write-Host "  CustomDataCollection Subscriptions 'PSRule for Azure' processing duration (in sum): $($durationPSRuleTotalSeconds / 60) minutes ($($durationPSRuleTotalSeconds) seconds)"
             }
         }
-        #test
         Write-Host " built-in PolicyDefinitions: $($($htCacheDefinitionsPolicy).Values.where({$_.Type -eq 'BuiltIn'}).Count)"
         Write-Host " custom PolicyDefinitions: $($($htCacheDefinitionsPolicy).Values.where({$_.Type -eq 'Custom'}).Count)"
         Write-Host " all PolicyDefinitions: $($($htCacheDefinitionsPolicy).Values.Count)"
@@ -913,11 +916,11 @@ function processDataCollection {
             $method = 'GET'
             $upperScopesPolicyAssignments = AzAPICall -AzAPICallConfiguration $azAPICallConf -uri $uri -method $method -currentTask $currentTask -caller 'CustomDataCollection'
 
-            $upperScopesPolicyAssignments = $upperScopesPolicyAssignments | Where-Object { $_.properties.scope -ne "/providers/Microsoft.Management/managementGroups/$($ManagementGroupId)" }
-            $upperScopesPolicyAssignmentsPolicyCount = (($upperScopesPolicyAssignments | Where-Object { $_.properties.policyDefinitionId -match '/providers/Microsoft.Authorization/policyDefinitions/' })).count
-            $upperScopesPolicyAssignmentsPolicySetCount = (($upperScopesPolicyAssignments | Where-Object { $_.properties.policyDefinitionId -match '/providers/Microsoft.Authorization/policySetDefinitions/' })).count
-            $upperScopesPolicyAssignmentsPolicyAtScopeCount = (($upperScopesPolicyAssignments | Where-Object { $_.properties.policyDefinitionId -match '/providers/Microsoft.Authorization/policyDefinitions/' -and $_.Id -match "/providers/Microsoft.Management/managementGroups/$($ManagementGroupId)" })).count
-            $upperScopesPolicyAssignmentsPolicySetAtScopeCount = (($upperScopesPolicyAssignments | Where-Object { $_.properties.policyDefinitionId -match '/providers/Microsoft.Authorization/policySetDefinitions/' -and $_.Id -match "/providers/Microsoft.Management/managementGroups/$($ManagementGroupId)" })).count
+            $upperScopesPolicyAssignments = $upperScopesPolicyAssignments.where({ $_.properties.scope -ne "/providers/Microsoft.Management/managementGroups/$($ManagementGroupId)" })
+            $upperScopesPolicyAssignmentsPolicyCount = (($upperScopesPolicyAssignments.where({ $_.properties.policyDefinitionId -match '/providers/Microsoft.Authorization/policyDefinitions/' }))).count
+            $upperScopesPolicyAssignmentsPolicySetCount = (($upperScopesPolicyAssignments.where({ $_.properties.policyDefinitionId -match '/providers/Microsoft.Authorization/policySetDefinitions/' }))).count
+            $upperScopesPolicyAssignmentsPolicyAtScopeCount = (($upperScopesPolicyAssignments.where({ $_.properties.policyDefinitionId -match '/providers/Microsoft.Authorization/policyDefinitions/' -and $_.Id -match "/providers/Microsoft.Management/managementGroups/$($ManagementGroupId)" }))).count
+            $upperScopesPolicyAssignmentsPolicySetAtScopeCount = (($upperScopesPolicyAssignments.where({ $_.properties.policyDefinitionId -match '/providers/Microsoft.Authorization/policySetDefinitions/' -and $_.Id -match "/providers/Microsoft.Management/managementGroups/$($ManagementGroupId)" }))).count
             $upperScopesPolicyAssignmentsPolicyAndPolicySetAtScopeCount = ($upperScopesPolicyAssignmentsPolicyAtScopeCount + $upperScopesPolicyAssignmentsPolicySetAtScopeCount)
             foreach ($L0mgmtGroupPolicyAssignment in $upperScopesPolicyAssignments) {
 
@@ -1199,12 +1202,13 @@ function processDataCollection {
         #$upperScopesRoleAssignments = GetRoleAssignments -Scope "/providers/Microsoft.Management/managementGroups/$($ManagementGroupId)" -scopeDetails "getRoleAssignments upperScopes (Mg)"
         $upperScopesRoleAssignments = $roleAssignmentsFromAPI
 
-        $upperScopesRoleAssignmentsLimitUtilization = (($upperScopesRoleAssignments | Where-Object { $_.properties.scope -eq "/providers/Microsoft.Management/managementGroups/$($ManagementGroupId)" })).count
+        $upperScopesRoleAssignmentsLimitUtilization = (($upperScopesRoleAssignments.where({ $_.properties.scope -eq "/providers/Microsoft.Management/managementGroups/$($ManagementGroupId)" }))).count
         #tenantLevelRoleAssignments
         if (-not $htMgAtScopeRoleAssignments.'tenantLevelRoleAssignments') {
-            $tenantLevelRoleAssignmentsCount = (($upperScopesRoleAssignments | Where-Object { $_.id -like '/providers/Microsoft.Authorization/roleAssignments/*' })).count
-            $htMgAtScopeRoleAssignments.'tenantLevelRoleAssignments' = @{}
-            $htMgAtScopeRoleAssignments.'tenantLevelRoleAssignments'.AssignmentsCount = $tenantLevelRoleAssignmentsCount
+            $tenantLevelRoleAssignmentsCount = (($upperScopesRoleAssignments.where({ $_.id -like '/providers/Microsoft.Authorization/roleAssignments/*' }))).count
+            $htMgAtScopeRoleAssignments.'tenantLevelRoleAssignments' = @{
+                AssignmentsCount = $tenantLevelRoleAssignmentsCount
+            }
         }
 
         foreach ($upperScopesRoleAssignment in $upperScopesRoleAssignments) {

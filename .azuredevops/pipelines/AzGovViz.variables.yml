@@ -1,4 +1,4 @@
-# Azure Governance Visualizer v6_major_20230306_1
+# Azure Governance Visualizer v6_major_20231113_1
 # First things first:
 # 1. Replace <YourServiceConnection> with the name of your service connection
 # 2. Replace <YourManagementGroupId> with the your ManagementGroupId
@@ -75,10 +75,30 @@ variables:
   - name: ScriptPrerequisites
     value: prerequisites.ps1
 
+  ## <--- AzAPICall parameters
+  ## Consult the AzAPICall GitHub repository for details aka.ms/AzAPICall
+
   # Enable Debug output
   - name: DebugAzAPICall
     # Switch | example: value: true
     value:
+
+  # Skip the AzAPICall Subscription Validation (only use in case you do not have any valid (quotaId != AAD_* & state != disabled) subscriptions in your tenant)
+  - name: AzAPICallSkipAzContextSubscriptionValidation
+    # Switch | example: value: true
+    value:
+
+  # Define the Subscription Id to use for AzContext (default is to use a random Subscription Id)
+  - name: SubscriptionId4AzContext
+    # String | example: value: "<your-Subscription-Id>"
+    value:
+
+  # Define the Tenant Id to use for AzContext (default is to use the Tenant Id from the current context)
+  - name: TenantId4AzContext
+    # String | example: value: "<your-Tenant-Id>"
+    value:
+
+  ## AzAPICall parameters --->
 
   # The world is split into two kind of delimiters - comma and semicolon - choose yours
   - name: CsvDelimiter
@@ -92,12 +112,17 @@ variables:
 
 ### Optional Variables - Modify as Needed
 
-  # Defines the limit (default=500) of AAD Group members; For AAD Groups that have more members than the defined limit Group members will not be resolved
+  # Define the Azure Resource Manager location to use (default is to use westeurope; this is used to optimize the built-in Azure RBAC Role definitions tracking)
+  - name: ARMLocation
+    # String | example: value: "westus"
+    value: 'westeurope'
+
+  # Defines the limit (default=500) of Microsoft Entra group members; For Microsoft Entra groups that have more members than the defined limit, group members will not be resolved
   - name: AADGroupMembersLimit
     # Integer | default = 500 | example: value: 333
     value:
 
-  # Define warning period for Service Principal secret and certificate expiry
+  # Define warning period for the service principal secret and certificate expiry
   - name: AADServicePrincipalExpiryWarningDays
     # Integer | default = 14 | example: value: 21
     value:
@@ -121,6 +146,11 @@ variables:
   - name: AzureConsumptionPeriod
     # Integer | default = 1 | example: value: 7
     value: 14
+
+  # Define if Azure Consumption data should be reported for previous month
+  - name: DoAzureConsumptionPreviousMonth
+    # Switch | example: value: true
+    value:
 
   # Do not include Role assignments on ResourceGroups and Resources
   - name: DoNotIncludeResourceGroupsAndResourcesOnRBAC
@@ -182,7 +212,7 @@ variables:
     # Switch | example: value: true
     value:
 
-  # Will not resolve Azure Active Directory Group memberships for Role assignments where identity type is 'Group'
+  # Will not resolve Microsoft Entra group memberships for role assignments where identity type is 'Group'
   - name: NoAADGroupsResolveMembers
     # Switch | example: value: true
     value:
@@ -251,12 +281,7 @@ variables:
     # Switch | example: value: true
     value:
 
-  # Define the Subscription Id to use for AzContext (default is to use a random Subscription Id)
-  - name: SubscriptionId4AzContext
-    # String | example: value: "<your-Subscription-Id>"
-    value:
-
-  # Define the number of script blocks running in parallel. Leveraging PowerShell Core´s parallel capability you can define the ThrottleLimit (default=5)
+  # Define the number of script blocks running in parallel. Using PowerShell's parallel capability you can define the ThrottleLimit (default=5).
   - name: ThrottleLimit
     # Integer | Default = 10 | example: value: 11
     value:

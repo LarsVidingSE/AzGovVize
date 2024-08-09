@@ -39,15 +39,15 @@ function processPrivateEndpoints {
                 else {
                     $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/subscriptions/$($peSubscriptionId)?api-version=2020-01-01"
                     $remoteTenantId = AzAPICall -AzAPICallConfiguration $azApiCallConf -uri $uri -listenOn 'content' -currentTask "getTenantId for subscriptionId '$($peSubscriptionId)'"
-                    $arrayRemoteMGPath = @()
+                    $arrayRemoteMGPath = [System.Collections.ArrayList]@()
                     foreach ($remoteId in $remoteTenantId) {
                         $objectGuid = [System.Guid]::empty
                         if ([System.Guid]::TryParse($remoteId, [System.Management.Automation.PSReference]$ObjectGuid)) {
                             if ($remoteId -in $MSTenantIds) {
-                                $arrayRemoteMGPath += "$remoteId (MS)"
+                                $null = $arrayRemoteMGPath.Add("$remoteId (MS)")
                             }
                             else {
-                                $arrayRemoteMGPath += $remoteId
+                                $null = $arrayRemoteMGPath.Add($remoteId)
                             }
                             if ($remoteId -eq $azApiCallConf['checkcontext'].tenant.id) {
                                 $peXTenant = $false
@@ -56,8 +56,9 @@ function processPrivateEndpoints {
                                 $peXTenant = $true
                             }
                         }
-                        $script:htUnknownTenantsForSubscription.($peSubscriptionId) = @{}
-                        $script:htUnknownTenantsForSubscription.($peSubscriptionId).TenantId = $arrayRemoteMGPath -join ', '
+                        $script:htUnknownTenantsForSubscription.($peSubscriptionId) = @{
+                            TenantId = $arrayRemoteMGPath -join ', '
+                        }
                         $peMGPath = $arrayRemoteMGPath -join ', '
                     }
                 }
@@ -198,15 +199,15 @@ function processPrivateEndpoints {
                     else {
                         $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/subscriptions/$($resourceSubscriptionId)?api-version=2020-01-01"
                         $remoteTenantId = AzAPICall -AzAPICallConfiguration $azApiCallConf -uri $uri -listenOn 'content' -currentTask "getTenantId for subscriptionId '$($resourceSubscriptionId)'"
-                        $arrayRemoteMGPath = @()
+                        $arrayRemoteMGPath = [System.Collections.ArrayList]@()
                         foreach ($remoteId in $remoteTenantId) {
                             $objectGuid = [System.Guid]::empty
                             if ([System.Guid]::TryParse($remoteId, [System.Management.Automation.PSReference]$ObjectGuid)) {
                                 if ($remoteId -in $MSTenantIds) {
-                                    $arrayRemoteMGPath += "$remoteId (MS)"
+                                    $null = $arrayRemoteMGPath.Add("$remoteId (MS)")
                                 }
                                 else {
-                                    $arrayRemoteMGPath += $remoteId
+                                    $null = $arrayRemoteMGPath.Add($remoteId)
                                 }
                                 if ($remoteId -eq $azApiCallConf['checkcontext'].tenant.id) {
                                     $resourceXTenant = $false
@@ -215,8 +216,9 @@ function processPrivateEndpoints {
                                     $resourceXTenant = $true
                                 }
                             }
-                            $script:htUnknownTenantsForSubscription.($resourceSubscriptionId) = @{}
-                            $script:htUnknownTenantsForSubscription.($resourceSubscriptionId).TenantId = $arrayRemoteMGPath -join ', '
+                            $script:htUnknownTenantsForSubscription.($resourceSubscriptionId) = @{
+                                TenantId = $arrayRemoteMGPath -join ', '
+                            }
                             $resourceMGPath = $arrayRemoteMGPath -join ', '
                         }
                     }

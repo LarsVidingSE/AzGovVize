@@ -33,8 +33,8 @@ function getConsumption {
             #$subscriptionIdsOptimizedForBody = '"{0}"' -f ($subsToProcessInCustomDataCollection.subscriptionId -join '","')
             $currenttask = "Getting Consumption data (scope MG '$($ManagementGroupId)') for $($subsToProcessInCustomDataCollectionCount) Subscriptions (QuotaId Whitelist: '$($SubscriptionQuotaIdWhitelist -join ', ')') for period $AzureConsumptionPeriod days ($azureConsumptionStartDate - $azureConsumptionEndDate)"
             Write-Host "$currentTask"
-            #https://docs.microsoft.com/en-us/rest/api/cost-management/query/usage
-            $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/providers/Microsoft.Management/managementGroups/$($ManagementGroupId)/providers/Microsoft.CostManagement/query?api-version=2019-11-01&`$top=5000"
+            #https://learn.microsoft.com/rest/api/cost-management/query/usage
+            $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/providers/Microsoft.Management/managementGroups/$($ManagementGroupId)/providers/Microsoft.CostManagement/query?api-version=2024-01-01&`$top=5000"
             $method = 'POST'
 
             $counterBatch = [PSCustomObject] @{ Value = 0 }
@@ -113,9 +113,11 @@ function getConsumption {
                     if (-not $script:htConsumptionExceptionLog.Mg.($ManagementGroupId)) {
                         $script:htConsumptionExceptionLog.Mg.($ManagementGroupId) = @{}
                     }
-                    $script:htConsumptionExceptionLog.Mg.($ManagementGroupId).($batchCnt) = @{}
-                    $script:htConsumptionExceptionLog.Mg.($ManagementGroupId).($batchCnt).Exception = $mgConsumptionData
-                    $script:htConsumptionExceptionLog.Mg.($ManagementGroupId).($batchCnt).Subscriptions = ($batch.Group).subscriptionId
+                    $script:htConsumptionExceptionLog.Mg.($ManagementGroupId).($batchCnt) = @{
+                        Exception     = $mgConsumptionData
+                        Subscriptions = ($batch.Group).subscriptionId
+                    }
+
                     Write-Host " Switching to 'foreach Subscription' Subscription scope mode. Getting Consumption data #batch$($batchCnt) using Management Group scope failed."
                     #region subScopewhitelisted
                     $body = @"
@@ -184,21 +186,23 @@ function getConsumption {
                         $currentTask = "  Getting Consumption data (scope Sub $($subNameToProcess) '$($subIdToProcess)' ($($subscriptionQuotaIdToProcess)) (whitelist))"
                         #test
                         Write-Host $currentTask
-                        #https://docs.microsoft.com/en-us/rest/api/cost-management/query/usage
-                        $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/subscriptions/$($subIdToProcess)/providers/Microsoft.CostManagement/query?api-version=2019-11-01&`$top=5000"
+                        #https://learn.microsoft.com/rest/api/cost-management/query/usage
+                        $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/subscriptions/$($subIdToProcess)/providers/Microsoft.CostManagement/query?api-version=2024-01-01&`$top=5000"
                         $method = 'POST'
                         $subConsumptionData = AzAPICall -AzAPICallConfiguration $azAPICallConf -uri $uri -method $method -body $body -currentTask $currentTask -listenOn 'ContentProperties'
                         if ($subConsumptionData -eq 'Unauthorized' -or $subConsumptionData -eq 'OfferNotSupported' -or $subConsumptionData -eq 'InvalidQueryDefinition' -or $subConsumptionData -eq 'NonValidWebDirectAIRSOfferType' -or $subConsumptionData -eq 'NotFoundNotSupported' -or $subConsumptionData -eq 'IndirectCostDisabled') {
                             Write-Host "   Failed ($subConsumptionData) - Getting Consumption data (scope Sub $($subNameToProcess) '$($subIdToProcess)' ($($subscriptionQuotaIdToProcess)) (whitelist))"
                             $hlper = $htAllSubscriptionsFromAPI.($subIdToProcess).subDetails
                             $hlper2 = $htSubscriptionsMgPath.($subIdToProcess)
-                            $script:htConsumptionExceptionLog.Sub.($subIdToProcess) = @{}
-                            $script:htConsumptionExceptionLog.Sub.($subIdToProcess).Exception = $subConsumptionData
-                            $script:htConsumptionExceptionLog.Sub.($subIdToProcess).SubscriptionId = $subIdToProcess
-                            $script:htConsumptionExceptionLog.Sub.($subIdToProcess).SubscriptionName = $hlper.displayName
-                            $script:htConsumptionExceptionLog.Sub.($subIdToProcess).QuotaId = $hlper.subscriptionPolicies.quotaId
-                            $script:htConsumptionExceptionLog.Sub.($subIdToProcess).mgPath = $hlper2.ParentNameChainDelimited
-                            $script:htConsumptionExceptionLog.Sub.($subIdToProcess).mgParent = $hlper2.Parent
+                            $script:htConsumptionExceptionLog.Sub.($subIdToProcess) = @{
+                                Exception        = $subConsumptionData
+                                SubscriptionId   = $subIdToProcess
+                                SubscriptionName = $hlper.displayName
+                                QuotaId          = $hlper.subscriptionPolicies.quotaId
+                                mgPath           = $hlper2.ParentNameChainDelimited
+                                mgParent         = $hlper2.Parent
+                            }
+
                             Continue
                         }
                         else {
@@ -245,8 +249,8 @@ function getConsumption {
             #region mgScope
             $currenttask = "Getting Consumption data (scope MG '$($ManagementGroupId)') for period $AzureConsumptionPeriod days ($azureConsumptionStartDate - $azureConsumptionEndDate)"
             Write-Host "$currentTask"
-            #https://docs.microsoft.com/en-us/rest/api/cost-management/query/usage
-            $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/providers/Microsoft.Management/managementGroups/$($ManagementGroupId)/providers/Microsoft.CostManagement/query?api-version=2019-11-01&`$top=5000"
+            #https://learn.microsoft.com/rest/api/cost-management/query/usage
+            $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/providers/Microsoft.Management/managementGroups/$($ManagementGroupId)/providers/Microsoft.CostManagement/query?api-version=2024-01-01&`$top=5000"
             $method = 'POST'
             $body = @"
 {
@@ -306,8 +310,9 @@ function getConsumption {
             }
             else {
                 if ($allConsumptionDataAPIResult -eq 'Unauthorized' -or $allConsumptionDataAPIResult -eq 'OfferNotSupported' -or $allConsumptionDataAPIResult -eq 'NoValidSubscriptions' -or $allConsumptionDataAPIResult -eq 'tooManySubscriptions') {
-                    $script:htConsumptionExceptionLog.Mg.($ManagementGroupId) = @{}
-                    $script:htConsumptionExceptionLog.Mg.($ManagementGroupId).Exception = $allConsumptionDataAPIResult
+                    $script:htConsumptionExceptionLog.Mg.($ManagementGroupId) = @{
+                        Exception = $allConsumptionDataAPIResult
+                    }
                     Write-Host " Switching to 'foreach Subscription' mode. Getting Consumption data using Management Group scope failed."
                     #region subScope
                     $body = @"
@@ -376,21 +381,23 @@ function getConsumption {
                         $currentTask = "  Getting Consumption data (scope Sub $($subNameToProcess) '$($subIdToProcess)' ($($subscriptionQuotaIdToProcess)))"
                         #test
                         Write-Host $currentTask
-                        #https://docs.microsoft.com/en-us/rest/api/cost-management/query/usage
-                        $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/subscriptions/$($subIdToProcess)/providers/Microsoft.CostManagement/query?api-version=2019-11-01&`$top=5000"
+                        #https://learn.microsoft.com/rest/api/cost-management/query/usage
+                        $uri = "$($azAPICallConf['azAPIEndpointUrls'].ARM)/subscriptions/$($subIdToProcess)/providers/Microsoft.CostManagement/query?api-version=2024-01-01&`$top=5000"
                         $method = 'POST'
                         $subConsumptionData = AzAPICall -AzAPICallConfiguration $azAPICallConf -uri $uri -method $method -body $body -currentTask $currentTask -listenOn 'ContentProperties'
                         if ($subConsumptionData -eq 'Unauthorized' -or $subConsumptionData -eq 'OfferNotSupported' -or $subConsumptionData -eq 'InvalidQueryDefinition' -or $subConsumptionData -eq 'NonValidWebDirectAIRSOfferType' -or $subConsumptionData -eq 'NotFoundNotSupported' -or $subConsumptionData -eq 'IndirectCostDisabled') {
                             Write-Host "   Failed ($subConsumptionData) - Getting Consumption data (scope Sub $($subNameToProcess) '$($subIdToProcess)' ($($subscriptionQuotaIdToProcess)))"
                             $hlper = $htAllSubscriptionsFromAPI.($subIdToProcess).subDetails
                             $hlper2 = $htSubscriptionsMgPath.($subIdToProcess)
-                            $script:htConsumptionExceptionLog.Sub.($subIdToProcess) = @{}
-                            $script:htConsumptionExceptionLog.Sub.($subIdToProcess).Exception = $subConsumptionData
-                            $script:htConsumptionExceptionLog.Sub.($subIdToProcess).SubscriptionId = $subIdToProcess
-                            $script:htConsumptionExceptionLog.Sub.($subIdToProcess).SubscriptionName = $hlper.displayName
-                            $script:htConsumptionExceptionLog.Sub.($subIdToProcess).QuotaId = $hlper.subscriptionPolicies.quotaId
-                            $script:htConsumptionExceptionLog.Sub.($subIdToProcess).mgPath = $hlper2.ParentNameChainDelimited
-                            $script:htConsumptionExceptionLog.Sub.($subIdToProcess).mgParent = $hlper2.Parent
+                            $script:htConsumptionExceptionLog.Sub.($subIdToProcess) = @{
+                                Exception        = $subConsumptionData
+                                SubscriptionId   = $subIdToProcess
+                                SubscriptionName = $hlper.displayName
+                                QuotaId          = $hlper.subscriptionPolicies.quotaId
+                                mgPath           = $hlper2.ParentNameChainDelimited
+                                mgParent         = $hlper2.Parent
+                            }
+
                             Continue
                         }
                         else {
@@ -461,26 +468,30 @@ function getConsumption {
                     foreach ($subscriptionId in $groupAllConsumptionDataPerCurrencyBySubscriptionId) {
 
                         $subTotalCost = ($subscriptionId.Group.PreTaxCost | Measure-Object -Sum).Sum
-                        $script:htAzureConsumptionSubscriptions.($subscriptionId.Name) = @{}
-                        $script:htAzureConsumptionSubscriptions.($subscriptionId.Name).ConsumptionData = $subscriptionId.group
-                        $script:htAzureConsumptionSubscriptions.($subscriptionId.Name).TotalCost = $subTotalCost
-                        $script:htAzureConsumptionSubscriptions.($subscriptionId.Name).Currency = $currency.Name
+                        $script:htAzureConsumptionSubscriptions.($subscriptionId.Name) = @{
+                            ConsumptionData = $subscriptionId.group
+                            TotalCost       = $subTotalCost
+                            Currency        = $currency.Name
+                        }
+
                         $resourceTypes = $subscriptionId.Group.ResourceType | Sort-Object -Unique
 
                         foreach ($parentMg in $htSubscriptionsMgPath.($subscriptionId.Name).ParentNameChain) {
 
                             if (-not $htManagementGroupsCost.($parentMg)) {
-                                $script:htManagementGroupsCost.($parentMg) = @{}
-                                $script:htManagementGroupsCost.($parentMg).currencies = $currency.Name
-                                $script:htManagementGroupsCost.($parentMg)."mgTotalCost_$($currency.Name)" = $subTotalCost #[decimal]$subTotalCost
-                                $script:htManagementGroupsCost.($parentMg)."resourcesThatGeneratedCost_$($currency.Name)" = ($subscriptionId.Group.ResourceId | Sort-Object -Unique | Measure-Object).Count
-                                $script:htManagementGroupsCost.($parentMg).resourcesThatGeneratedCostCurrencyIndependent = ($subscriptionId.Group.ResourceId | Sort-Object -Unique | Measure-Object).Count
-                                $script:htManagementGroupsCost.($parentMg)."subscriptionsThatGeneratedCost_$($currency.Name)" = 1
-                                $script:htManagementGroupsCost.($parentMg).subscriptionsThatGeneratedCostCurrencyIndependent = 1
-                                $script:htManagementGroupsCost.($parentMg)."resourceTypesThatGeneratedCost_$($currency.Name)" = $resourceTypes
-                                $script:htManagementGroupsCost.($parentMg).resourceTypesThatGeneratedCostCurrencyIndependent = $resourceTypes
-                                $script:htManagementGroupsCost.($parentMg)."consumptionDataSubscriptions_$($currency.Name)" = $subscriptionId.group
-                                $script:htManagementGroupsCost.($parentMg).consumptionDataSubscriptions = $subscriptionId.group
+                                $script:htManagementGroupsCost.($parentMg) = @{
+                                    currencies                                         = $currency.Name
+                                    "mgTotalCost_$($currency.Name)"                    = $subTotalCost #[decimal]$subTotalCost
+                                    "resourcesThatGeneratedCost_$($currency.Name)"     = ($subscriptionId.Group.ResourceId | Sort-Object -Unique | Measure-Object).Count
+                                    resourcesThatGeneratedCostCurrencyIndependent      = ($subscriptionId.Group.ResourceId | Sort-Object -Unique | Measure-Object).Count
+                                    "subscriptionsThatGeneratedCost_$($currency.Name)" = 1
+                                    subscriptionsThatGeneratedCostCurrencyIndependent  = 1
+                                    "resourceTypesThatGeneratedCost_$($currency.Name)" = $resourceTypes
+                                    resourceTypesThatGeneratedCostCurrencyIndependent  = $resourceTypes
+                                    "consumptionDataSubscriptions_$($currency.Name)"   = $subscriptionId.group
+                                    consumptionDataSubscriptions                       = $subscriptionId.group
+                                }
+
                             }
                             else {
                                 $newMgTotalCost = $htManagementGroupsCost.($parentMg)."mgTotalCost_$($currency.Name)" + $subTotalCost #[decimal]$subTotalCost
@@ -580,10 +591,10 @@ function getConsumption {
                 Write-Host " Exporting Consumption CSV $($outputPath)$($DirectorySeparatorChar)$($fileName)_Consumption.csv"
                 $startBuildConsumptionCSV = Get-Date
                 if ($CsvExportUseQuotesAsNeeded) {
-                    $allConsumptionData | Export-Csv -Path "$($outputPath)$($DirectorySeparatorChar)$($fileName)_Consumption.csv" -Delimiter "$csvDelimiter" -NoTypeInformation -UseQuotes AsNeeded
+                    $allConsumptionData | Sort-Object -Property ResourceId | Export-Csv -Path "$($outputPath)$($DirectorySeparatorChar)$($fileName)_Consumption.csv" -Delimiter "$csvDelimiter" -NoTypeInformation -UseQuotes AsNeeded
                 }
                 else {
-                    $allConsumptionData | Export-Csv -Path "$($outputPath)$($DirectorySeparatorChar)$($fileName)_Consumption.csv" -Delimiter "$csvDelimiter" -NoTypeInformation
+                    $allConsumptionData | Sort-Object -Property ResourceId | Export-Csv -Path "$($outputPath)$($DirectorySeparatorChar)$($fileName)_Consumption.csv" -Delimiter "$csvDelimiter" -NoTypeInformation
                 }
                 $endBuildConsumptionCSV = Get-Date
                 Write-Host " Exporting Consumption CSV total duration: $((New-TimeSpan -Start $startBuildConsumptionCSV -End $endBuildConsumptionCSV).TotalMinutes) minutes ($((New-TimeSpan -Start $startBuildConsumptionCSV -End $endBuildConsumptionCSV).TotalSeconds) seconds)"
